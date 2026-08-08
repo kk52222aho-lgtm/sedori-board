@@ -268,8 +268,33 @@ def build_master() -> pd.DataFrame:
     return df.sort_values(["_ord", "期待粗利180d"], ascending=[True, False])
 
 
+def live_winners() -> pd.DataFrame:
+    """**いま買える玉**。進行中ヤフオク × 勝ち語(souba-league/src/live_winners.py)。
+
+    下の winners() は落札済みの回顧やから買えん。こっちが本物の買い物リストや。
+    """
+    d = (S.snap("live_winners", dtype={"auction_id": str}) if S.CLOUD
+         else S.read_csv(S.SOUBA / "data/camera/live_winners.csv",
+                         dtype={"auction_id": str}))
+    if d.empty:
+        return d
+    for c in ("現在価格", "max_bid", "想定純利", "勝ち語", "残り時間h"):
+        if c in d:
+            d[c] = pd.to_numeric(d[c], errors="coerce")
+    human = S.read_csv(S.DATA / "human_verdicts.csv", dtype={"auction_id": str})
+    if not human.empty:
+        d = d[~d["auction_id"].isin(set(human[human["verdict"] == "kill"]["auction_id"]))]
+    d["段"] = np.where(d["勝ち語"] >= 5, "🏆 実弾GO",
+                       np.where(d["勝ち語"] >= 4, "👍 買える", "🤏 見送り"))
+    return d.sort_values(["勝ち語", "想定純利"], ascending=False)
+
+
 def winners() -> pd.DataFrame:
-    """買い物リスト — 「勝ち語」で拾った個体そのもの。
+    """**過去の実績サンプル**。「こういう玉なら勝てた」であって**買えるものやない**。
+
+    元は yahoo_closed.csv = 180日の**落札済み**。2026-08-08に実際にリンクを
+    開いて発覚した——盤が「買い物リスト」と名乗って出しとった玉は全部2〜6月に
+    終わっとった。**看板に偽りがあった。** 買える玉は live_winners() を見ること。
 
     等級(型番単位)やのうて**玉単位**の答えや。「どの型番が有望か」やのうて
     「この玉を買え」を出す。撃墜語で殺した残りやのうて、

@@ -118,36 +118,73 @@ with tabs[0]:
         view = view[hay.str.contains(q, case=False, na=False)]
 
     with left:
-        wins = W.winners()
-        st.subheader("🏆 買い物リスト — 勝ち語で拾った玉")
-        if wins.empty:
-            st.info("`python src/find_winners.py --candidates data/camera/candidates.csv "
-                    "data/camera/candidates_cheap.csv` を回すと出る。")
+        # ---- いま買える玉(進行中) ----
+        lw = W.live_winners()
+        st.subheader("🏆 いま買える玉 — 進行中ヤフオク × 勝ち語")
+        if lw.empty:
+            st.warning(
+                "進行中の該当玉なし。ローカルで "
+                "`python src/live_winners.py --hours 36`"
+                " を回すと更新される。")
         else:
-            tot = wins["gross_hc"].sum()
-            st.markdown(
-                f"**{len(wins)}件 / 粗利 ¥{tot:,.0f} (180日) = 月 ¥{tot/6:,.0f}**")
+            buyable = lw[lw["勝ち語"] >= 4]
+            now_ok = int((lw.get("いま買える", "○") == "○").sum()) if "いま買える" in lw else len(lw)
+            st.markdown(f"**質が合格 {len(buyable)}件**(うち今すぐ買える {int((buyable.get('いま買える','○')=='○').sum()) if 'いま買える' in buyable else len(buyable)}件)"
+                        f" / 走査した玉 {len(lw)}件・価格圏内 {now_ok}件")
             st.caption(
-                "**殺す語やのうて勝つ語で選んどる。** 「欠陥が書いてない玉」やのうて"
-                "「出品者がこの個体について具体的に述べとる玉」や。  \n"
-                "重みは人手ラベル44件で**実測較正済み**——効いたのは "
+                "工場は**安さ**で撃つ。ここは**質**で選ぶ。"
+                "紙上勝ちを検品したら0/6やった(逆選択= 安く落ちるのは壊れとるから)ので、"
+                "価格条件を満たした玉に勝ち語を重ねとる。"
+                "勝ち語4点以上が実弾の目安(人手ラベル44件で精度70%)。 "
+                "**「監視」は今の価格が上限を超えとる玉。** 質はええので終盤に張る用や。"
+                "工場の12時間窓やと『終了間際なのに誰も入札しとらん玉』=逆選択しか"
+                "拾えんかったので、7日先まで見て**早いうちに良い玉を見つける**作りに変えた。")
+            show = lw if st.checkbox("見送り(3点以下)も出す", value=False) else buyable
+            if show.empty:
+                st.info("価格は合っとるが質が足りん玉ばかり。下のチェックで中身を見れる。")
+            else:
+                st.dataframe(
+                    show[[c for c in ["段", "いま買える", "勝ち語", "想定純利",
+                                      "現在価格", "上限まで", "残り時間h",
+                                      "勝ち語の中身", "欠陥", "title", "url"]
+                          if c in show]],
+                    hide_index=True, width="stretch", height=380,
+                    column_config={
+                        "想定純利": st.column_config.NumberColumn(format="¥%d"),
+                        "現在価格": st.column_config.NumberColumn(format="¥%d"),
+                        "上限まで": st.column_config.NumberColumn(
+                            "上限まで", format="¥%d",
+                            help="max_bid − 現在価格。マイナスなら今は高すぎる=監視"),
+                        "残り時間h": st.column_config.NumberColumn("残り", format="%.1fh"),
+                        "url": st.column_config.LinkColumn("ヤフオク", display_text="入札"),
+                    })
+            if not lw.empty and "scanned_at" in lw:
+                st.caption(f"走査時刻: {lw['scanned_at'].max()}")
+        st.divider()
+
+        # ---- 過去の実績サンプル(買えん) ----
+        wins = W.winners()
+        with st.expander(f"📚 過去に勝てた玉の実績サンプル({len(wins)}件) — **買えません**"):
+            st.caption(
+                "**これは落札済みの回顧や。**元は180日ぶんの落札データで、"
+                "全部もう終わっとる。載せとるのは「勝つ玉はこういう顔をしとる」の"
+                "見本のためだけ。**ここから買えると思わせる作りにしとったのは間違いやった**"
+                "(2026-08-08にリンクを開いて発覚)。 "
+                "勝ち語の重みは人手ラベル44件で較正済み——効いたのは "
                 "光学クリア明記(+61%) / 防湿庫(+50%) / 低使用(+32%) / 動作確認済(+30%)。"
-                "**逆に効かんかったのが返品保証(−14%)と専門店(−21%)**で、どっちも"
-                "「店の方針」を述べとるだけやから玉の質と関係なかった"
-                "(返品保証は範囲が『初期不良のみ・ジャンク対象外』で、一番効いてほしい"
-                "状態不良を外しとる)。本文1800字以上は業者の定型文が厚く keep率0%で −3点。  \n"
-                "閾値4点で**精度70%**(較正前は25%)。既知の勝ち3本を全部拾えることも検定済み。"
-                "⚠ この精度は較正に使った標本での in-sample。")
-            st.dataframe(
-                wins[["段", "win_score", "gross_hc", "price", "win_signals",
-                      "family", "title", "url"]],
-                hide_index=True, width="stretch", height=430,
-                column_config={
-                    "win_score": st.column_config.NumberColumn("勝ち語"),
-                    "gross_hc": st.column_config.NumberColumn("粗利(保守)", format="¥%d"),
-                    "price": st.column_config.NumberColumn("落札", format="¥%d"),
-                    "url": st.column_config.LinkColumn("ヤフオク", display_text="開く"),
-                })
+                "**返品保証(−14%)と専門店(−21%)は逆に効かんかった**(どっちも「店の方針」で"
+                "玉の質と無関係)。本文1800字以上は業者の定型文が厚く keep率0%で −3点。")
+            if not wins.empty:
+                st.dataframe(
+                    wins[["勝ち語" if "勝ち語" in wins else "win_score",
+                          "gross_hc", "price", "win_signals", "family", "title"]],
+                    hide_index=True, width="stretch",
+                    column_config={
+                        "win_score": st.column_config.NumberColumn("勝ち語"),
+                        "gross_hc": st.column_config.NumberColumn("粗利(保守)", format="¥%d"),
+                        "price": st.column_config.NumberColumn("落札", format="¥%d"),
+                    })
+
         st.divider()
 
         judges = {cfg["label"]: S.judge_kind(k) for k, cfg in S.NICHES.items()}

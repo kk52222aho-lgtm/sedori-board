@@ -51,6 +51,7 @@ def main() -> int:
     master = W.build_master()
     dump("master", master)
     dump("winners", W.winners())
+    dump("live_winners", W.live_winners())
 
     sig = pd.concat([W.load_signals(n) for n in S.NICHES], ignore_index=True)
     dump("signals", sig)
@@ -93,7 +94,8 @@ def main() -> int:
         "買取表の差分": f"{d_old} → {d_new}",
         "fa朝リスト": fa_date,
         "型番数": int(len(master)),
-        "買い物リスト": int(len(W.winners())),
+        "実績サンプル": int(len(W.winners())),
+        "いま買える玉": int(len(W.live_winners())),
     }
     (SNAP / "meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
