@@ -1,7 +1,18 @@
 __pycache__/
 *.pyc
 .venv/
+
+# 秘密。公開リポジトリなので念のため明示的に落とす
+.env
+*.env
+.streamlit/secrets.toml
+
+# 本文キャッシュ(数百MBになりうる・aucfreeの生ページ)
 data/bodies/
+
+# 個人の財務情報。保有玉と仕入値は公開せん
+data/holdings.csv
+
+# 実行時に増える作業ファイル
 data/live_inspect.csv
 data/alert_log.csv
-.streamlit/secrets.toml
