@@ -16,6 +16,7 @@ import pandas as pd
 import streamlit as st
 
 from core import alerts as A
+from core import audit_gate as AG
 from core import inspect_live as IL
 from core import sources as S
 from core import watchlist as W
@@ -98,6 +99,10 @@ c3.metric("期待粗利 / 180日", yen(go["期待粗利180d"].sum()),
 c4.metric("紙上台帳", f"{len(won)}勝 {len(lost)}敗",
           yen(won["realized_net"].sum()) if len(won) else None,
           help="工場が max_bid で入札しとったら勝てたか。検品は通しとらん")
+
+# **想定純利の逆選別**。この盤の一番大事な規律やから、常時いちばん上に出す。
+# 詳しい理屈と実例は core/audit_gate.py に書いた。
+st.warning(AG.AUDIT_NOTE, icon="🔍")
 
 tabs = st.tabs(["🎯 勝てる商品", "🔔 アラート", "📒 台帳", "🌏 その他チャネル",
                 "💀 墓場", "🏭 稼働"])
