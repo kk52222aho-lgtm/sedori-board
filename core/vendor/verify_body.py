@@ -40,7 +40,12 @@ BODY_NG = [
     # 「未点検」「未清掃」は 動作未確認 と同じ意味やのに漏れとった。
     # 2026-08-07: 【未点検・未清掃】のSEL18200LEが生存判定で残り、
     # 盤の実弾GO筆頭(¥28,200/180日)に化けとった。買取は正常作動の良品前提や。
-    ("動作未確認", r"動作未確認|動作は未確認|通電未確認|音出し未確認|試奏未確認|"
+    # 2026-08-11: **「動作確認不可」が入っとらんかった。** D850の玉で
+    # regexは別語(ジャンク)で撃墜したのに、LLMが「動作確認不可は欠陥の記述やない」と
+    # 言うて撤回し、純利+26,545の生存に戻しとった。確認できんかったという申告は
+    # 免責やのうて、その個体について分かっとることの全部や。
+    ("動作未確認", r"動作未確認|動作は未確認|動作確認不可|動作確認できません|"
+                   r"動作確認しておりません|通電未確認|通電のみ|音出し未確認|試奏未確認|"
                    r"未検品|検品しておりません|未点検|未清掃|"
                    r"回数不明|ショット数不明|使用時間不明"),
     ("不動・故障", r"不動品|故障|通電しない|電源が入らない|動作しません|作動しません"),
@@ -69,6 +74,19 @@ BODY_NG = [
     ("引取限定", r"引取限定|引取り限定|引き取り限定|引取品限定|店頭引取|直接引取|配送不可|発送不可"),
 ]
 BODY_NG = [(name, re.compile(pat)) for name, pat in BODY_NG]
+
+# **LLMに撤回させん category。**
+# LLMを噛ませる理由は「この個体はカビがある」と「カビは保証対象外」の区別で、
+# それは**状態を述べる語**にだけ要る区別や。下の6つは状態やのうて
+# **等級・素性・物流の宣言**やから、免責定型として読みようがない:
+#   ジャンク/部品取り = 出品者が付けた等級そのもの
+#   動作未確認/不動・故障 = 検証状態の申告
+#   無在庫・併売 = そもそも個体が特定できん
+#   引取限定 = 送れんので買えん
+# 2026-08-11の実測: LLMは「ジャンク扱いという分類のみ」「動作確認不可は
+# 欠陥の記述ではなく」と書いて撤回しとった。**分類そのものが判定材料や。**
+NO_OVERTURN = {"ジャンク", "部品取り", "不動・故障", "動作未確認",
+               "無在庫・併売", "引取限定"}
 
 # 免責・注意書きのゾーン。ここに並ぶ欠陥語は「この個体にある」やのうて
 # 「保証しません」の列挙。実例(XF56mm): 「以下の事項は保証対象外となります。
@@ -414,6 +432,7 @@ def main() -> int:
     session.headers["User-Agent"] = UA
 
     n_kill = n_keep = n_unknown = n_fallback = n_llm = n_overturn = 0
+    n_locked = 0
     exhausted = False
     done = _load_done(args.out, src) if args.resume else {}
     for i, row in enumerate(rows, 1):
@@ -426,9 +445,15 @@ def main() -> int:
             continue
         body = fetch_body(session, row["auction_id"])
         verdict, hit = judge(body)
+        # 等級・素性の宣言で撃墜したときは、LLMに諮らんとそのまま確定させる。
+        # ここを諮ると「分類のみで具体的な欠陥の記述がない」と言うて撤回してまう。
+        locked = verdict == "kill" and (set(hit.split("|")) & NO_OVERTURN)
+        if locked:
+            hit = f"(確定) {hit}"
+            n_locked += 1
         # LLMは正規表現が kill と言うたときだけ呼ぶ。正規表現の弱点は偽killで、
         # keep はそのまま信じてええから、その分のトークンが浮く。
-        if providers and body and verdict == "kill" and not exhausted:
+        if providers and body and verdict == "kill" and not locked and not exhausted:
             snips = defect_snippets(body)
             lv, lh = "", ""
             while providers:
@@ -466,7 +491,7 @@ def main() -> int:
                     hit = lh
                 verdict = lv
             time.sleep(max(0.0, args.llm_sleep - args.sleep))
-        elif exhausted and verdict == "kill":
+        elif exhausted and verdict == "kill" and not locked:
             hit = f"(regex退避) {hit}"
             n_fallback += 1
         row["body_verdict"] = verdict
@@ -491,6 +516,7 @@ def main() -> int:
 
     print()
     print(f"kill={n_kill}  keep={n_keep}  unknown={n_unknown}  ({len(rows)}件)")
+    print(f"うち {n_locked}件は等級・素性の宣言でLLMに諮らず確定")
     if n_llm:
         print(f"LLMが裁いた撃墜候補: {n_llm}件 / うち {n_overturn}件を撤回(=生存に戻した)")
     if n_fallback:

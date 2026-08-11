@@ -89,17 +89,28 @@ def inspect(auction_id: str, use_llm: bool = True,
         info.update(verdict="unknown", hit=info.get("error") or "本文取得不能", how="—")
         return info
 
-    verdict, hit, how = "", "", ""
-    if use_llm:
+    # **regex を先に通す。** 2026-08-11まで LLM を先に呼んで regex は退避扱いやった。
+    # せやから「ジャンク」「動作確認不可」と書いてある出品でも、LLM が
+    # 「分類のみで具体的な欠陥の記述がない」と言うたらそのまま素通りしとった
+    # (落札済みの検品で D850 の玉が純利+26,545の生存に化けた実例あり)。
+    # 等級・素性の宣言は LLM に諮らず確定させる。免責定型との区別が要るのは
+    # 状態語だけで、そこだけ LLM に渡す。
+    verdict, hit = VB.judge(info["body"])
+    how = "regex"
+    locked = verdict == "kill" and (set(hit.split("|")) & VB.NO_OVERTURN)
+    if locked:
+        hit = f"(確定) {hit}"
+        how = "regex(確定)"
+    elif use_llm:
         key = VB._load_env().get("GROQ_API_KEY")
         if key:
-            verdict, hit = VB.judge_llm(session or requests.Session(), info["body"], key)
-            how = "LLM"
-            if verdict == "error":
-                verdict = ""
-    if not verdict:
-        verdict, hit = VB.judge(info["body"])
-        how = how + "→regex" if how else "regex"
+            lv, lh = VB.judge_llm(session or requests.Session(), info["body"], key)
+            if lv not in ("error", "throttled", "exhausted"):
+                if lv == "keep" and verdict == "kill":
+                    hit = f"(LLMが撤回: {hit}) {lh}"[:140]
+                else:
+                    hit = lh
+                verdict, how = lv, "LLM"
     # 欠陥が無いことと良品であることは別や。**勝ち語**も必ず採る——
     # 2026-08-07の人手検証で落ちた17件のうち6件は「欠陥は無いが状態が確認できん」
     # (通電のみ・記述ゼロ・代理出品)やった。負のフィルタだけでは拾えん。
