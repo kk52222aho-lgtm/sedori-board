@@ -16,6 +16,8 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
+from textnorm import norm
+
 ROOT = Path(__file__).resolve().parents[1]
 SHIP_IN = 1000
 GROSS_MIN = 3000
@@ -46,7 +48,7 @@ JUNK_RE = re.compile(
     # 2026-08-11のバックテストで「JUNK明記のLX100M2」が純利¥60,848の勝ち玉に
     # 化けとった。カタカナだけ見とったら半分しか止まらん。
     r"[Jj][Uu][Nn][Kk]|"
-    r"ジャンク|訳あり|訳アリ|不動|故障|難あり|難アリ|難有り|カビ|クモリ|くもり|曇り|"
+    r"ジャンク|訳あり|訳アリ|ワケアリ|わけあり|不動|故障|難あり|難アリ|難有り|カビ|クモリ|くもり|曇り|"
     r"バルサム|キズあり|動作未確認|部品取り|エラー|シャッター不良|"
     # 「動作不良」は 不動 にも 故障 にも当たらんかった。2026-08-07に
     # 工場が「SONY α7III ILCE-7M3 本体（動作不良品）」を発火させて
@@ -100,17 +102,18 @@ def main():
             spec = fams[fam]
             snapshot_date = snapshot_date or (r["collected_at"] or "")[:10]
             liq[fam] += 1
-            if PARTS_RE.search(title) or JUNK_RE.search(title):
+            mt = norm(title)          # 照合はこっち。title は原文のまま出力に使う
+            if PARTS_RE.search(mt) or JUNK_RE.search(mt):
                 continue
-            if not spec["match"].search(title):
+            if not spec["match"].search(mt):
                 continue
-            if spec["exclude"] and spec["exclude"].search(title):
+            if spec["exclude"] and spec["exclude"].search(mt):
                 continue
-            if spec.get("require") and not spec["require"].search(title):
+            if spec.get("require") and not spec["require"].search(mt):
                 continue
-            if spec.get("maker") and not spec["maker"].search(title):
+            if spec.get("maker") and not spec["maker"].search(mt):
                 continue
-            if len(COMPAT_RE.findall(title)) >= 3:
+            if len(COMPAT_RE.findall(mt)) >= 3:
                 continue
             matched += 1
             price = int(float(r["price"]))

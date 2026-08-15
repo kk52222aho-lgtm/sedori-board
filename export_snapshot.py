@@ -30,6 +30,53 @@ from core import sources as S
 from core import watchlist as W
 
 SNAP = S.DATA / "snapshot"
+# souba-league が吐く**いま買える玉**。フリマ候補に検品判定と売切状態を付けたもの
+# 生パスは `` がフォームフィードに化ける。Path を継ぎ足して組む
+FLIP = Path("C:/dev/souba-league/data/flip")
+
+
+def build_buylist() -> pd.DataFrame:
+    """フリマ候補 + 検品 + 売切状態 を1枚にする。
+
+    **上位ほど誤マッチが濃い**という規律(core/audit_gate.py)はここでも同じや。
+    純利の降順で出すが、それは買いキューやのうて監査キューや。
+    """
+    # **仕入れ面は1つやない。** フリマとメルカリを1枚にまとめて出す
+    frames = []
+    for name, mkt in [("flea_candidates.csv", "Yahoo!フリマ"),
+                      ("mercari_candidates.csv", "メルカリ")]:
+        f = FLIP / name
+        if not f.exists():
+            continue
+        d = pd.read_csv(f, encoding="utf-8-sig")
+        if d.empty:
+            continue
+        d["市場"] = mkt
+        frames.append(d)
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    # **候補CSVが既に検品を持っとるなら、それが最新や。**
+    # 2026-08-15: ここで無条件に merge しとったせいで pandas が
+    # `verdict_x`/`verdict_y` に分裂させ、**盤が全件「未検品」になった**。
+    # 別ファイルは「候補に検品が無いとき」の補いにしか使わん。
+    for c in ("verdict", "hit", "status"):
+        if c not in df:
+            df[c] = ""
+        df[c] = df[c].fillna("")
+    need = df["verdict"].astype(str).str.strip() == ""
+    x = FLIP / "flea_xtab2.csv"
+    if need.any() and x.exists():
+        xt = pd.read_csv(x, encoding="utf-8-sig")[["url", "verdict", "hit", "status"]]
+        m = dict(zip(xt["url"], zip(xt["verdict"], xt["hit"], xt["status"])))
+        for i in df.index[need]:
+            got = m.get(df.at[i, "url"])
+            if got:
+                df.at[i, "verdict"], df.at[i, "hit"], df.at[i, "status"] = got
+    keep = ["市場", "family", "title", "price", "median", "net", "condition",
+            "verdict", "hit", "status", "url", "scanned_at"]
+    return df[[c for c in keep if c in df]]
+
 
 
 def dump(name: str, df: pd.DataFrame) -> int:
@@ -70,6 +117,7 @@ def main() -> int:
     dump("sell_hits", hit)
     dump("moves", moves.head(500) if not moves.empty else moves)
 
+    dump("buylist", build_buylist())
     dump("freshness", S.freshness())
     fa_date, fa = S.fa_morning()
     dump("fa_morning", fa)

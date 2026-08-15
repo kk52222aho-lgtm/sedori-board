@@ -17,6 +17,7 @@ import streamlit as st
 
 from core import alerts as A
 from core import audit_gate as AG
+from core import buylist as BL
 from core import inspect_live as IL
 from core import sources as S
 from core import watchlist as W
@@ -104,11 +105,57 @@ c4.metric("紙上台帳", f"{len(won)}勝 {len(lost)}敗",
 # 詳しい理屈と実例は core/audit_gate.py に書いた。
 st.warning(AG.AUDIT_NOTE, icon="🔍")
 
-tabs = st.tabs(["🎯 勝てる商品", "🔔 アラート", "📒 台帳", "🌏 その他チャネル",
-                "💀 墓場", "🏭 稼働"])
+tabs = st.tabs(["🛒 いま買える", "🎯 勝てる商品", "🔔 アラート", "📒 台帳",
+                "🌏 その他チャネル", "💀 墓場", "🏭 稼働"])
+
+# ------------------------------------------------------------------ いま買える
+with tabs[0]:
+    bl = BL.load()
+    if bl.empty:
+        st.warning("買い目がまだ無い。ローカルで "
+                   "`python src/flea_scan.py` → `python export_snapshot.py` を回す。")
+    else:
+        live = BL.live(bl)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("いま買える玉", f"{len(live)} 件")
+        c2.metric("純利の合計", yen(live["net"].sum()) if len(live) else "—")
+        if "市場" in live:
+            for mk, n in live["市場"].value_counts().items():
+                st.caption(f"　{mk}: {n}件")
+        c3.metric("既に売れた", f"{len(bl) - len(live)} 件",
+                  help="走査から数時間で6割が消える。速い者勝ちや")
+        st.caption(
+            "**Yahoo!フリマの固定価格。出とる値でそのまま買える。** "
+            "ヤフオクは競りやから良い玉は中央値まで競り上がって買い線に届かん"
+            "(実測: 宣言した上限で勝てたのは決済8件中2件=**25%**)。"
+            "フリマは逆で、**相場を知らん人が普通の玉を安く出す**——"
+            "人手で60件読んだら上位は「買い替えたため出品」「動作に問題なし」"
+            "という職人の出品やった。"
+            "**純利2万超は追跡した10件が10件とも売れとる**=市場も安いと認めとる。")
+        st.info(
+            "**「検品」欄は買ってええかの判定やない。** "
+            "本文に欠陥の自白があるかだけを見とる。"
+            "実測では keep 62% / kill 61% と**売れ方に差が無かった**——"
+            "「売れた=良品」やないからや(部品取りでも売れる)。"
+            "**買う前に必ずリンクを開いて写真と本文を読むこと。**", icon="🔍")
+        only_live = st.checkbox("まだ買える玉だけ", value=True)
+        view = live if only_live else bl
+        show = view.rename(columns=BL.COLS)
+        cols = [c for c in ["純利", "いま", "相場", "市場", "型番", "商品",
+                            "状態", "判定", "売切", "リンク"] if c in show]
+        st.dataframe(
+            show[cols], hide_index=True, width="stretch", height=560,
+            column_config={
+                "純利": st.column_config.NumberColumn(format="¥%d"),
+                "いま": st.column_config.NumberColumn("いくら", format="¥%d"),
+                "相場": st.column_config.NumberColumn("落札中央", format="¥%d"),
+                "リンク": st.column_config.LinkColumn("開く", display_text="見る"),
+            })
+        if "scanned_at" in view:
+            st.caption(f"走査時刻: {view['scanned_at'].max()}")
 
 # ------------------------------------------------------------------ 勝てる商品
-with tabs[0]:
+with tabs[1]:
     left, right = st.columns([3, 1])
     with right:
         grades = st.multiselect(
@@ -256,7 +303,7 @@ with tabs[0]:
                 })
 
 # ------------------------------------------------------------------ アラート
-with tabs[1]:
+with tabs[2]:
     buy_tab, sell_tab = st.tabs(["🟩 買いアラート", "🟥 売りアラート"])
 
     with buy_tab:
@@ -364,7 +411,7 @@ with tabs[1]:
             st.dataframe(h, hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------ 台帳
-with tabs[2]:
+with tabs[3]:
     st.error(
         "**このROIを成績として読んだらあかん。** 2026-08-07に紙上で勝った6件を"
         "本文検品にかけたら **kill 6 / keep 0**(紙上純利¥73,895 → 検品通過¥0)。"
@@ -407,7 +454,7 @@ with tabs[2]:
         st.divider()
 
 # ------------------------------------------------------------------ その他チャネル
-with tabs[3]:
+with tabs[4]:
     st.subheader("越境 — 実弾GO(手で刻む)")
     st.caption("`data/manual_picks.csv` を編集すれば増える。"
                "生存しとるのは全て**工程のある出口**(委託審査・鑑定)で、"
@@ -428,7 +475,7 @@ with tabs[3]:
         st.dataframe(fa, hide_index=True, width="stretch", height=520)
 
 # ------------------------------------------------------------------ 墓場
-with tabs[4]:
+with tabs[5]:
     st.caption("**二度と手を出さんための一覧**。ここに載っとるものを思いついたら、"
                "この行の死因を読んでから動くこと。")
     grave = S.read_csv(S.DATA / "graveyard.csv")
@@ -442,7 +489,7 @@ with tabs[4]:
         "「状態が外から判る」カテゴリだけ。")
 
 # ------------------------------------------------------------------ 稼働
-with tabs[5]:
+with tabs[6]:
     st.caption("工場が止まっとらんか。ここが古い日付で止まっとったら、"
                "アラートが出んのは「玉が無い」やのうて「見とらん」からや。")
     st.dataframe(S.freshness(), hide_index=True, width="stretch")
