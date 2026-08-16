@@ -41,17 +41,17 @@ def build_buylist() -> pd.DataFrame:
     **上位ほど誤マッチが濃い**という規律(core/audit_gate.py)はここでも同じや。
     純利の降順で出すが、それは買いキューやのうて監査キューや。
     """
-    # **仕入れ面は1つやない。** フリマとメルカリを1枚にまとめて出す
+    # **仕入れ面は1つやない。** 面を足すたびにここを書き換える形にしとったら
+    # 必ず忘れる(2026-08-16、ラクマを4面目にしたのに検査器へ入れ忘れた)。
+    # **ファイル名から自動で拾う。**
+    MARKET = {"flea": "Yahoo!フリマ", "mercari": "メルカリ", "rakuma": "ラクマ"}
     frames = []
-    for name, mkt in [("flea_candidates.csv", "Yahoo!フリマ"),
-                      ("mercari_candidates.csv", "メルカリ")]:
-        f = FLIP / name
-        if not f.exists():
-            continue
+    for f in sorted(FLIP.glob("*_candidates.csv")):
+        key = f.name.replace("_candidates.csv", "")
         d = pd.read_csv(f, encoding="utf-8-sig")
         if d.empty:
             continue
-        d["市場"] = mkt
+        d["市場"] = MARKET.get(key, key)
         frames.append(d)
     if not frames:
         return pd.DataFrame()
