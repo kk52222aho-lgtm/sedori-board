@@ -18,6 +18,7 @@ import streamlit as st
 from core import alerts as A
 from core import audit_gate as AG
 from core import buylist as BL
+from core import crossmarket as CM
 from core import inspect_live as IL
 from core import sources as S
 from core import watchlist as W
@@ -138,10 +139,24 @@ with tabs[0]:
             "実測では keep 62% / kill 61% と**売れ方に差が無かった**——"
             "「売れた=良品」やないからや(部品取りでも売れる)。"
             "**買う前に必ずリンクを開いて写真と本文を読むこと。**", icon="🔍")
-        only_live = st.checkbox("まだ買える玉だけ", value=True)
+        st.caption(
+            "**面には順位がある**(2026-08-17に経過時間を揃えて実測): "
+            + " / ".join(f"**{k}** {v}" for k, v in CM.MARKET_NOTE.items())
+            + "。原因は**同じ型番でも面によって値段が違う**こと"
+            "(`HN-65N4` はラクマ¥39,800 vs フリマ¥22,000 = 1.81倍)。"
+            "**買い線を割っとっても、他の面にもっと安い玉があったら買われん。**")
+        c_a, c_b = st.columns(2)
+        only_live = c_a.checkbox("まだ買える玉だけ", value=True)
+        only_lo = c_b.checkbox("**全面で最安の玉だけ**", value=True,
+                               help="同じ型番が複数の面に出とるとき、"
+                                    "実際に買われるのは最安の1つや")
         view = live if only_live else bl
+        view = CM.rank(view)
+        if only_lo:
+            view = CM.only_cheapest(view)
         show = view.rename(columns=BL.COLS)
-        cols = [c for c in ["純利", "いま", "相場", "市場", "型番", "商品",
+        cols = [c for c in ["純利", "いま", "相場", "市場", "最安か",
+                            "他面との差", "出とる面数", "型番", "商品",
                             "状態", "判定", "売切", "リンク"] if c in show]
         st.dataframe(
             show[cols], hide_index=True, width="stretch", height=560,
