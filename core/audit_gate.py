@@ -57,15 +57,41 @@ AUDIT_NOTE = (
 
 
 def mark(df: pd.DataFrame, net_col: str = "net") -> pd.DataFrame:
-    """純利の降順に並べ、上位に監査フラグを立てる。
+    """**買い線からの乖離が大きい順**に並べ、上位に監査フラグを立てる。
+
+    2026-08-19、乖離で並べる根拠が実測で出た。ゼンハイザー HD800 の
+    生きた出品を見に行ったら、買い線¥71,429を割っとった2本が**両方ケーブル**やった:
+
+        ¥  9,800  ORB Clearforce … HD800 オーディオケーブル   乖離 87%
+        ¥ 27,000  ALO AUDIO SXC 8 HD800 リケーブル            乖離 62%
+        ¥101,500  ゼンハイザー HD800 CH800S セット             買い線を超えとる
+        ¥105,000  ゼンハイザー HD800                          買い線を超えとる
+
+    **誤マッチは安いから、粗利がデカく見える側に必ず出る。**本物の玉は買い線の
+    すぐ下に張り付くが、別物と比べとる玉は際限なく下に出る。せやから
+    「乖離がデカい順」は、そのまま「疑わしい順」や。
+
+    純利の降順も同じ向きに効くが、乖離は**値段の桁を跨いでも比べられる**。
+    ¥9,800の誤マッチと¥200,000の本物を、純利では並べられん。
 
     返す列:
-      監査キュー順  1始まりの順位
+      監査キュー順  1始まりの順位(乖離の大きい順)
+      買い線乖離    (買い線 - 価格) / 買い線。大きいほど疑わしい
       要人手確認    上位N本か、または人手判定が未記入なら True
     """
     if df.empty or net_col not in df.columns:
         return df
-    out = df.sort_values(net_col, ascending=False).reset_index(drop=True).copy()
+    out = df.copy()
+    if {"price", "buy_line"} <= set(out.columns):
+        p = pd.to_numeric(out["price"], errors="coerce")
+        b = pd.to_numeric(out["buy_line"], errors="coerce")
+        out["買い線乖離"] = ((b - p) / b).where(b > 0)
+        out = out.sort_values(["買い線乖離", net_col],
+                              ascending=[False, False])
+    else:
+        # 買い線が無い盤では従来どおり純利の降順。向きは同じや
+        out = out.sort_values(net_col, ascending=False)
+    out = out.reset_index(drop=True)
     out["監査キュー順"] = out.index + 1
     human = out["人手判定"] if "人手判定" in out.columns else pd.Series(
         [""] * len(out), index=out.index)
