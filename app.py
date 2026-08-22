@@ -364,7 +364,11 @@ with tabs[2]:
         st.divider()
         st.subheader(f"✅ 旗の立っとらんレーン({len(ok)}本)")
         st.caption("**ここが「今の盤で信用できる買い方・売り方」**や。"
-                   "輸出は年台数×粗利、国内は目の前の1個の粗利で並べとる。")
+                   "輸出は年台数×粗利、国内は目の前の1個の粗利で並べとる。  
+"
+                   "出口の内訳: **eBay US** は実売中央から手数料16%・国際送料・関税を引いた後。"
+                   "**ヤフオク再出品**は落札中央 ×(1−IQRマージン)×(1−落札手数料10%)− 送料¥1,000 "
+                   "で、買取店に売る話やのうて**自分が売り手に回る**。")
         CFG = {
             "仕入値": st.column_config.NumberColumn("仕入", format="¥%d"),
             "売値": st.column_config.NumberColumn(format="¥%d"),
@@ -374,8 +378,9 @@ with tabs[2]:
             "年台数": st.column_config.NumberColumn(format="%.1f 台"),
             "url": st.column_config.LinkColumn("玉", display_text="開く"),
         }
-        SHOW = ["品", "仕入面", "仕入値", "売面", "売値", "引かれ", "純利",
-                "年台数", "年間粗利", "帯", "url"]
+        # **一番左に「どこで買ってどこで売るか」を置く。** これが見出しや
+        SHOW = ["レーン", "品", "仕入面", "仕入値", "売面", "売値", "引かれ",
+                "純利", "年台数", "年間粗利", "帯", "url"]
         for kind, sort_by in (("輸出(相場)", "年間粗利"), ("国内(現物)", "純利")):
             part = ok[ok["種別"] == kind]
             if part.empty:
