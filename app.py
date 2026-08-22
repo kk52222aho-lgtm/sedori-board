@@ -20,6 +20,7 @@ from core import audit_gate as AG
 from core import buylist as BL
 from core import crossmarket as CM
 from core import inspect_live as IL
+from core import lanes as LN
 from core import sources as S
 from core import watchlist as W
 
@@ -106,8 +107,8 @@ c4.metric("紙上台帳", f"{len(won)}勝 {len(lost)}敗",
 # 詳しい理屈と実例は core/audit_gate.py に書いた。
 st.warning(AG.AUDIT_NOTE, icon="🔍")
 
-tabs = st.tabs(["🛒 いま買える", "🎯 勝てる商品", "🔔 アラート", "📒 台帳",
-                "🌏 その他チャネル", "💀 墓場", "🏭 稼働"])
+tabs = st.tabs(["🛒 いま買える", "🎯 勝てる商品", "🌏 レーン比較", "🔔 アラート",
+                "📒 台帳", "🌏 その他チャネル", "💀 墓場", "🏭 稼働"])
 
 # ------------------------------------------------------------------ いま買える
 with tabs[0]:
@@ -317,8 +318,87 @@ with tabs[1]:
                     "gross_hc": st.column_config.NumberColumn("粗利(保守)", format="¥%d"),
                 })
 
-# ------------------------------------------------------------------ アラート
+# ------------------------------------------------------------------ レーン比較
 with tabs[2]:
+    lanes = LN.load()
+    if lanes.empty:
+        st.info("レーンの計測がまだ無い。ローカルで `python export_snapshot.py` を回して"
+                "`data/snapshot/lanes.csv` を作ること。")
+    else:
+        c1, c2, c3 = st.columns([1, 1, 2])
+        ratio = c1.slider("入口が売値のこれ未満なら旗", 0.0, 0.30,
+                          LN.MIN_BUY_RATIO, 0.01, format="%.2f",
+                          help="仕入と売値の桁が違う行は、引き算の左右がズレとる疑いや")
+        dirty = c2.slider("汚染率がこれ以上なら旗", 0.0, 0.50, LN.DIRTY, 0.05)
+        kinds = c3.multiselect("見るレーン", ["輸出(相場)", "国内(現物)"],
+                               default=["輸出(相場)", "国内(現物)"])
+
+        view = lanes[lanes["種別"].isin(kinds)] if kinds else lanes.iloc[0:0]
+        view = LN.flags(view, ratio=ratio, dirty=dirty)
+        ok = LN.clean(view)
+        ng = view[view["要注意"] != ""]
+
+        # 実績は保有玉から。**holdings.csv は .gitignore しとるのでクラウドには無い**
+        real, has_real = 0.0, False
+        try:
+            h = A.holdings_pl(master)
+            if h is not None and not h.empty and "純利" in h:
+                real = float(pd.to_numeric(h["純利"], errors="coerce").fillna(0).sum())
+                has_real = True
+        except Exception:
+            pass
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("机上 年間粗利(旗なし)", yen(LN.paper_total(ok)))
+        m2.metric("机上 年間粗利(全部)", yen(LN.paper_total(view)))
+        m3.metric("実績(手元の確定)", yen(real) if has_real else "—")
+        if not has_real:
+            st.warning(
+                f"🧮 **左の数字は全部まだ机上や。** 盤の上では年 {yen(LN.paper_total(ok))} "
+                "と出とるが、実際に売れて手に入った金はここに映っとらん"
+                "(`data/holdings.csv` は個人の財務情報やから公開せん＝クラウドには無い)。"
+                "**紙上で勝った6件を検品したら生存0やった前例がある。**", icon="🧮")
+        elif LN.paper_total(ok) > 0:
+            st.success(f"実績 {yen(real)} / 机上(旗なし) {yen(LN.paper_total(ok))} = "
+                       f"**{real / LN.paper_total(ok) * 100:.1f}%** が現実になった。")
+
+        st.divider()
+        st.subheader(f"✅ 旗の立っとらんレーン({len(ok)}本)")
+        st.caption("**ここが「今の盤で信用できる買い方・売り方」**や。"
+                   "輸出は年台数×粗利、国内は目の前の1個の粗利で並べとる。")
+        CFG = {
+            "仕入値": st.column_config.NumberColumn("仕入", format="¥%d"),
+            "売値": st.column_config.NumberColumn(format="¥%d"),
+            "引かれ": st.column_config.NumberColumn("手数料+送料+関税", format="¥%d"),
+            "純利": st.column_config.NumberColumn("1台の純利", format="¥%d"),
+            "年間粗利": st.column_config.NumberColumn(format="¥%d"),
+            "年台数": st.column_config.NumberColumn(format="%.1f 台"),
+            "url": st.column_config.LinkColumn("玉", display_text="開く"),
+        }
+        SHOW = ["品", "仕入面", "仕入値", "売面", "売値", "引かれ", "純利",
+                "年台数", "年間粗利", "帯", "url"]
+        for kind, sort_by in (("輸出(相場)", "年間粗利"), ("国内(現物)", "純利")):
+            part = ok[ok["種別"] == kind]
+            if part.empty:
+                continue
+            st.markdown(f"**{kind}** — {len(part)}本")
+            cols = [c for c in SHOW if c in part.columns]
+            st.dataframe(part.sort_values(sort_by, ascending=False)[cols],
+                         hide_index=True, width="stretch", height=300,
+                         column_config=CFG)
+
+        st.subheader(f"⚠️ 監査キュー({len(ng)}本)")
+        st.caption("**買いキューやない。** 推定利益の降順は上ほど誤りが濃いので、"
+                   "旗が立った行はここに落とす。人が実物を読んでから昇格させる。")
+        if len(ng):
+            ncols = [c for c in ["品", "仕入面", "仕入値", "売面", "売値", "純利",
+                                 "年台数", "要注意", "url"] if c in ng.columns]
+            st.dataframe(ng.sort_values("純利", ascending=False)[ncols],
+                         hide_index=True, width="stretch", height=320,
+                         column_config=CFG)
+
+# ------------------------------------------------------------------ アラート
+with tabs[3]:
     buy_tab, sell_tab = st.tabs(["🟩 買いアラート", "🟥 売りアラート"])
 
     with buy_tab:
@@ -426,7 +506,7 @@ with tabs[2]:
             st.dataframe(h, hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------ 台帳
-with tabs[3]:
+with tabs[4]:
     st.error(
         "**このROIを成績として読んだらあかん。** 2026-08-07に紙上で勝った6件を"
         "本文検品にかけたら **kill 6 / keep 0**(紙上純利¥73,895 → 検品通過¥0)。"
@@ -469,7 +549,7 @@ with tabs[3]:
         st.divider()
 
 # ------------------------------------------------------------------ その他チャネル
-with tabs[4]:
+with tabs[5]:
     st.subheader("越境 — 実弾GO(手で刻む)")
     st.caption("`data/manual_picks.csv` を編集すれば増える。"
                "生存しとるのは全て**工程のある出口**(委託審査・鑑定)で、"
@@ -490,7 +570,7 @@ with tabs[4]:
         st.dataframe(fa, hide_index=True, width="stretch", height=520)
 
 # ------------------------------------------------------------------ 墓場
-with tabs[5]:
+with tabs[6]:
     st.caption("**二度と手を出さんための一覧**。ここに載っとるものを思いついたら、"
                "この行の死因を読んでから動くこと。")
     grave = S.read_csv(S.DATA / "graveyard.csv")
@@ -504,7 +584,7 @@ with tabs[5]:
         "「状態が外から判る」カテゴリだけ。")
 
 # ------------------------------------------------------------------ 稼働
-with tabs[6]:
+with tabs[7]:
     st.caption("工場が止まっとらんか。ここが古い日付で止まっとったら、"
                "アラートが出んのは「玉が無い」やのうて「見とらん」からや。")
     st.dataframe(S.freshness(), hide_index=True, width="stretch")

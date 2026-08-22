@@ -26,6 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 from core import alerts as A
+from core import lanes as LN
 from core import sources as S
 from core import watchlist as W
 
@@ -118,6 +119,9 @@ def main() -> int:
     dump("moves", moves.head(500) if not moves.empty else moves)
 
     dump("buylist", build_buylist())
+    # 「どこで買ってどこで売るか」。**旗立ては画面側でやる**
+    # (閾値をスライダーで動かすので、生の列を持たせたまま出す)
+    dump("lanes", LN.build())
     dump("freshness", S.freshness())
     fa_date, fa = S.fa_morning()
     dump("fa_morning", fa)
