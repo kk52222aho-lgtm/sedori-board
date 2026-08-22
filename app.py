@@ -88,35 +88,18 @@ st.caption(
 go = W.survivors(master)
 buy_live = get_buy(False)
 n_a_alert = int((buy_live["等級"] == "A").sum()) if not buy_live.empty else 0
-sig_all = pd.concat([W.load_signals(n) for n in S.NICHES], ignore_index=True)
-won = sig_all[sig_all["status"] == "settled_won"] if not sig_all.empty else pd.DataFrame()
-lost = sig_all[sig_all["status"] == "settled_lost"] if not sig_all.empty else pd.DataFrame()
 
-c1, c2, c3, c4 = st.columns(4)
+# 紙上台帳(勝敗と紙上純利)は **KPI行から外した**。検品を通しとらん数字で、
+# 実際に通した唯一の機会(2026-08-07・6件)は kill 6 / keep 0 やった。
+# 3行の言い訳を添えんと誤読される数字を入口の一等地に置く理由が無い。
+# 台帳そのものは 📒台帳タブに残しとる(照準の後追いとしては意味がある)。
+c1, c2, c3 = st.columns(3)
 c1.metric("実弾GOの型番", f"{len(go)} 件",
           help="本文検品を通った実績があり、180日で1万円以上見込める型番")
 c2.metric("いま出とる買い", f"{len(buy_live)} 件",
           f"うち🟢 {n_a_alert} 件" if len(buy_live) else None)
 c3.metric("期待粗利 / 180日", yen(go["期待粗利180d"].sum()),
           help="実弾GOの型番だけの合計。keep件数 × keep時の粗利中央値")
-# **金額を実数値と同じ顔で出さん。** 紙上純利は「max_bidで落札できとったら」の
-# 仮定の上に乗った数字で、検品も通しとらん。ここを ¥209,216 と素で出しとったら
-# 期待粗利(¥36,100)より一桁デカく見えて、実弾の成績と読めてまう(実際そう読まれた)。
-c4.metric("紙上台帳(実弾やない)", f"{len(won)}勝 {len(lost)}敗",
-          f"紙上{yen(won['realized_net'].sum())}・未検品" if len(won) else None,
-          delta_color="off",
-          help="工場が max_bid で入札しとったら勝てたか。検品は通しとらん")
-
-# 紙上台帳の注意は **help に隠したらあかん**。マウスを乗せんと見えん場所に置いた
-# せいで、¥209,216 が実弾の成績と読まれた(2026-08-22)。見える場所に出す。
-if len(won):
-    st.caption(
-        f"⚠️ **紙上台帳({len(won)}勝{len(lost)}敗・{yen(won['realized_net'].sum())})は"
-        "実弾やない。** 「max_bid で入札しとったら勝てたか」の後追いで、1円も動いてへんし"
-        "**本文検品も通しとらん**。2026-08-07に紙上の勝ち6件を検品したら "
-        "**kill 6 / keep 0**(¥73,895 → ¥0)。負けは中央で上限+53%超過やから、"
-        "**落とせた玉は誰も競らんかった玉**や(逆選択)。実弾の目安は左の「期待粗利/180日」。")
-
 # **想定純利の逆選別**。この盤の一番大事な規律やから、常時いちばん上に出す。
 # 詳しい理屈と実例は core/audit_gate.py に書いた。
 st.warning(AG.AUDIT_NOTE, icon="🔍")
