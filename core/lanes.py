@@ -32,12 +32,14 @@ FLIP_MARKET = {
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
            "買い線", "汚染率", "出口n", "入口n")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
-           "帯", "構成", "出口状態", "型番弱")
+           "帯", "構成", "構成差", "出口状態", "型番弱")
 
 # ---- 旗の閾値。**画面のスライダーで動かせるが、既定はここが正本や** ----
 MIN_BUY_RATIO = 0.05   # 仕入値が売値のこれ未満 = 引き算の左右がズレとる疑い
 DIRTY = 0.15           # purity の汚染率がこれ以上 = 母集団に別物が混ざっとる
-THIN_N = 5             # 出口/入口の標本がこれ未満 = 中央値が1件で動く
+THIN_N = 10            # 出口/入口の標本がこれ未満 = 中央値が数件で動く
+                       # (5やと PXW-Z190 の出口n=6 が通ってまう。
+                       #  1台¥12万の判断が6件の中央値に乗るのは薄い)
 
 
 def _num(df: pd.DataFrame, *cols: str) -> None:
@@ -83,7 +85,7 @@ def _grades() -> pd.DataFrame:
         return pd.DataFrame()
     _num(d, "汚染率", "出口n", "入口n")
     keep = [c for c in ("機種", "帯", "汚染率", "出口n", "入口n", "構成",
-                        "出口状態", "型番弱") if c in d]
+                        "構成差", "出口状態", "型番弱") if c in d]
     return d[keep].rename(columns={"機種": "品"})
 
 
@@ -208,16 +210,32 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         v = dirty_s.get(i)
         if pd.notna(v) and v >= dt:
             w.append(f"汚染{v * 100:.0f}%")
+        # 輸出レーンは purity が標本数を出しとる。**空欄は「薄くない」やのうて
+        # 「分からん」**や(構成を割れんかった行がそうなる)。0件と未測を同じ
+        # 入れ物に入れると盤が嘘をつくのと同じ話で、不明も旗を立てる。
+        is_export = str(d["種別"].get(i) if "種別" in d else "").startswith("輸出")
         for series, lab in ((outn, "出口"), (inn, "入口")):
             v = series.get(i)
-            if pd.notna(v) and v < tn:
-                w.append(f"{lab}標本{int(v)}件")
+            if pd.notna(v):
+                if v < tn:
+                    w.append(f"{lab}標本{int(v)}件")
+            elif is_export:
+                w.append(f"{lab}標本が不明")
         v = years.get(i)
         if pd.notna(v) and v < 1:
             w.append(f"年{v:.1f}台=待ち")
         comp = d["構成"].get(i) if "構成" in d else None
         if isinstance(comp, str) and "セット" in comp:
             w.append("構成にセット混在")
+        # purity が既に出しとる2つ。**盤が見てへんかった**(2026-08-22)。
+        # DAIWA EXIST が「旗なし首位・年間粗利508万」に居座っとった原因や。
+        # 入口p25 ¥9,000 に対し中央 ¥28,273 = 替えスプールや部品が混ざっとる。
+        diff = d["構成差"].get(i) if "構成差" in d else None
+        if isinstance(diff, str) and diff.strip():
+            w.append(f"構成差[{diff.strip()}]")
+        weak = d["型番弱"].get(i) if "型番弱" in d else None
+        if isinstance(weak, str) and weak.strip():
+            w.append(f"型番弱[{weak.strip()}]")
         out.append(" / ".join(w))
     d["要注意"] = out
     return d
@@ -239,3 +257,15 @@ def paper_total(df: pd.DataFrame) -> float:
     if df.empty or "年間粗利" not in df:
         return 0.0
     return float(pd.to_numeric(df["年間粗利"], errors="coerce").fillna(0).sum())
+
+def profitable(df: pd.DataFrame) -> pd.DataFrame:
+    """純利がプラスの行だけ。
+
+    **旗なし=データがきれい、であって儲かるとは限らん。** 2026-08-22 の実データで
+    HXR-NX5R(−¥75,954)・TD-50(−¥126,964)・CONTAX T3(−¥200,424)が
+    「信用できるレーン」に並んどった。**きれいに測れた死**や。買い候補と
+    同じ表に置いたら盤が嘘をつく。
+    """
+    if df.empty or "純利" not in df:
+        return df
+    return df[pd.to_numeric(df["純利"], errors="coerce").fillna(0) > 0]

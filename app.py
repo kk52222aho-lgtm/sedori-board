@@ -335,7 +335,9 @@ with tabs[2]:
 
         view = lanes[lanes["種別"].isin(kinds)] if kinds else lanes.iloc[0:0]
         view = LN.flags(view, ratio=ratio, dirty=dirty)
-        ok = LN.clean(view)
+        clean_all = LN.clean(view)
+        ok = LN.profitable(clean_all)            # 買い候補 = 旗なし かつ 粗利プラス
+        dead = clean_all[~clean_all.index.isin(ok.index)]   # きれいに測れた死
         ng = view[view["要注意"] != ""]
 
         # 実績は保有玉から。**holdings.csv は .gitignore しとるのでクラウドには無い**
@@ -386,6 +388,17 @@ with tabs[2]:
             st.dataframe(part.sort_values(sort_by, ascending=False)[cols],
                          hide_index=True, width="stretch", height=300,
                          column_config=CFG)
+
+        if len(dead):
+            with st.expander(f"⚰️ きれいに測れた死({len(dead)}本) — "
+                             "データは信用できるが、粗利がマイナス"):
+                st.caption("**旗なし = きれい、であって儲かるとは限らん。** "
+                           "ここは「ちゃんと測った上で駄目やと分かった」レーンや。"
+                           "買い候補と混ぜたらあかんが、消したら同じ検討を繰り返す。")
+                dcols = [c for c in ["品", "仕入面", "仕入値", "売面", "売値",
+                                     "引かれ", "純利", "年台数"] if c in dead.columns]
+                st.dataframe(dead.sort_values("純利")[dcols], hide_index=True,
+                             width="stretch", column_config=CFG)
 
         st.subheader(f"⚠️ 監査キュー({len(ng)}本)")
         st.caption("**買いキューやない。** 推定利益の降順は上ほど誤りが濃いので、"
