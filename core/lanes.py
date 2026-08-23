@@ -358,7 +358,11 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         # 入口p25 ¥9,000 に対し中央 ¥28,273 = 替えスプールや部品が混ざっとる。
         diff = d["構成差"].get(i) if "構成差" in d else None
         if isinstance(diff, str) and diff.strip():
-            w.append(f"構成差[{diff.strip()}]")
+            # 構成差(トリム後もIQRが閾値超え)も、人が出口を読んで
+            # 「単体しか無い」と確かめとったら外す。汚染と同じ扱いや——
+            # どっちも「出口の母集団が一種類か」を別の角度で見とるだけ
+            if ver.get(str(d["品"].get(i) if "品" in d else ""), {}).get("判定") != "clean":
+                w.append(f"構成差[{diff.strip()}]")
         weak = d["型番弱"].get(i) if "型番弱" in d else None
         if isinstance(weak, str) and weak.strip():
             w.append(f"型番弱[{weak.strip()}]")
