@@ -50,7 +50,7 @@ def _q(v) -> str:
 
 
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
-           "買い線", "入口中央", "汚染率", "出口n", "入口n")
+           "買い線", "入口中央", "買線内", "汚染率", "出口n", "入口n")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く",
            "帯", "構成", "構成差", "出口状態", "型番弱")
@@ -71,50 +71,54 @@ def _num(df: pd.DataFrame, *cols: str) -> None:
 
 
 def _export_from_souba() -> pd.DataFrame:
-    """輸出レーン。**粗利/台は two_sided.csv の計算をそのまま使う。**"""
-    p = S.SOUBA / "data" / "two_sided.csv"
+    """輸出レーン。**出所は purity.csv**。
+
+    以前は two_sided.csv を読んどったが、あれは**トリムも構成分割もしとらん
+    生の中央値**や。purity.py は同じ元データに対して
+      ①中央値の1/5未満を反復で落とす(部品の混入)
+      ②構成(枝番・セット)で割ってから両側を突き合わせる
+      ③標本の薄い構成は出口中央へ引き戻す(shrink)
+    をやっとって、148機種のうち **62機種で出口中央が2%以上ちがう**。
+    買い線は出口中央から決まるんやから、汚れた側で線を引いたら高く買わされる。
+
+    **粗利/台・買い線・年間粗利は purity の計算をそのまま使う。** 2026-08-23 に
+    purity.py へ「買い線」列を足したのは、盤で式を書き直さんで済ませるためや。
+    """
+    p = S.SOUBA / "data" / "purity.csv"
     if not p.exists():
         return pd.DataFrame()
     d = S.read_csv(p)
+    if d.empty or "買い線" not in d:
+        return pd.DataFrame()
+    _num(d, "出口中央", "入口p25", "粗利/台", "買い線", "年間粗利", "年台数",
+         "買線内", "汚染率", "出口n", "入口n")
+    d = d[d["粗利/台"].notna() & d["買い線"].notna()]
     if d.empty:
         return pd.DataFrame()
-    _num(d, "送料", "out_中央", "in_p25", "in_中央", "粗利/台", "関税自腹",
-         "買い線", "out_年台数", "年間粗利")
-    buy = d["in_p25"].fillna(d["in_中央"])
     q = _model_queries()
     jp = d["機種"].map(lambda m: q.get(m, ("", ""))[0])
     us = d["機種"].map(lambda m: q.get(m, ("", ""))[1])
     out = pd.DataFrame({
         "品": d["機種"], "レーン": "ヤフオク → eBay US", "種別": "輸出(相場)",
-        "仕入面": "ヤフオク(落札p25)", "仕入値": buy,
-        "売面": "eBay US(実売中央)", "売値": d["out_中央"],
-        # 引かれ = 売値 - 仕入 - 粗利。手数料・送料・関税をまとめた実効控除
-        "引かれ": d["out_中央"] - buy - d["粗利/台"],
-        "純利": d["粗利/台"], "年台数": d["out_年台数"],
-        "年間粗利": d["年間粗利"], "関税": d["関税自腹"], "買い線": d["買い線"],
-        "入口中央": d["in_中央"],
+        "仕入面": "ヤフオク(落札p25)", "仕入値": d["入口p25"],
+        "売面": "eBay US(実売中央)", "売値": d["出口中央"],
+        # 引かれ = 売値 − 仕入 − 粗利。手数料16%・国際送料・関税をまとめた実効控除
+        "引かれ": d["出口中央"] - d["入口p25"] - d["粗利/台"],
+        "純利": d["粗利/台"], "年台数": d["年台数"],
+        "年間粗利": d["年間粗利"], "買い線": d["買い線"],
+        "買線内": d["買線内"],
+        # 入口中央は purity に無いので、安値ゴミの旗は「p25 が出口の何%か」に
+        # 任せる。purity は既にトリム済みやから、そもそも安値ゴミは落ちとる
+        "汚染率": d["汚染率"], "出口n": d["出口n"], "入口n": d["入口n"],
+        "帯": d.get("帯", ""), "構成": d.get("構成", ""),
+        "構成差": d.get("構成差", ""), "型番弱": d.get("型番弱", ""),
+        "出口状態": d.get("出口状態", ""),
         "玉": "", "url": "",
         "買いに行く": jp.map(lambda v: YAHOO_SEARCH.format(q=_q(v)) if v else ""),
         "売りに行く": us.map(lambda v: EBAY_SOLD.format(q=_q(v)) if v else ""),
-        "根拠": "two_sided.csv(Terapeak 3年実売 × aucfree 12ヶ月)",
+        "根拠": "purity.csv(トリム+構成分割済み。Terapeak 3年実売 × aucfree 12ヶ月)",
     })
-    g = _grades()
-    if not g.empty:
-        out = out.merge(g, on="品", how="left")
-    return out[out["純利"].notna()]
-
-
-def _grades() -> pd.DataFrame:
-    p = S.SOUBA / "data" / "purity.csv"
-    if not p.exists():
-        return pd.DataFrame()
-    d = S.read_csv(p)
-    if d.empty:
-        return pd.DataFrame()
-    _num(d, "汚染率", "出口n", "入口n")
-    keep = [c for c in ("機種", "帯", "汚染率", "出口n", "入口n", "構成",
-                        "構成差", "出口状態", "型番弱") if c in d]
-    return d[keep].rename(columns={"機種": "品"})
+    return out
 
 
 def _model_queries() -> dict[str, tuple[str, str]]:
