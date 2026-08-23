@@ -50,7 +50,7 @@ def _q(v) -> str:
 
 
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
-           "買い線", "汚染率", "出口n", "入口n")
+           "買い線", "入口中央", "汚染率", "出口n", "入口n")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く",
            "帯", "構成", "構成差", "出口状態", "型番弱")
@@ -58,6 +58,7 @@ TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠",
 # ---- 旗の閾値。**画面のスライダーで動かせるが、既定はここが正本や** ----
 MIN_BUY_RATIO = 0.05   # 仕入値が売値のこれ未満 = 引き算の左右がズレとる疑い
 DIRTY = 0.15           # purity の汚染率がこれ以上 = 母集団に別物が混ざっとる
+ENTRY_P25_RATIO = 0.6  # 入口p25が入口中央のこれ未満 = 安値側にゴミが残っとる
 THIN_N = 10            # 出口/入口の標本がこれ未満 = 中央値が数件で動く
                        # (5やと PXW-Z190 の出口n=6 が通ってまう。
                        #  1台¥12万の判断が6件の中央値に乗るのは薄い)
@@ -91,6 +92,7 @@ def _export_from_souba() -> pd.DataFrame:
         "引かれ": d["out_中央"] - buy - d["粗利/台"],
         "純利": d["粗利/台"], "年台数": d["out_年台数"],
         "年間粗利": d["年間粗利"], "関税": d["関税自腹"], "買い線": d["買い線"],
+        "入口中央": d["in_中央"],
         "玉": "", "url": "",
         "買いに行く": jp.map(lambda v: YAHOO_SEARCH.format(q=_q(v)) if v else ""),
         "売りに行く": us.map(lambda v: EBAY_SOLD.format(q=_q(v)) if v else ""),
@@ -248,6 +250,7 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
     r = MIN_BUY_RATIO if ratio is None else ratio
     dt = DIRTY if dirty is None else dirty
     tn = THIN_N if thin is None else thin
+    er = ENTRY_P25_RATIO
     if df.empty:
         d = df.copy()
         d["要注意"] = pd.Series(dtype=str)
@@ -266,6 +269,7 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         return pd.Series(float("nan"), index=d.index, dtype="float64")
 
     buy, sell = num("仕入値"), num("売値")
+    entry_mid, line = num("入口中央"), num("買い線")
     dirty_s, years = num("汚染率"), num("年台数")
     outn, inn = num("出口n"), num("入口n")
     out = []
@@ -291,6 +295,21 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         v = years.get(i)
         if pd.notna(v) and v < 1:
             w.append(f"年{v:.1f}台=待ち")
+        # 🚨 **入口の安値側にゴミが残っとると、粗利が盛られる。**
+        # 粗利/台 = 出口中央×0.84 − 送料 − **入口p25** やから、p25 が地面に
+        # 引っ張られるほど粗利が大きく見える。買い線は出口だけで決まるので
+        # 壊れんが、**順位が壊れる**。2026-08-23、AG-DVX200 の本体11件に
+        # ¥16,000(中央¥122,000)が混ざって p25 が¥50,000 に落ち、
+        # 粗利が¥104,175=実勢の3倍に見えとった。
+        em = entry_mid.get(i)
+        if pd.notna(b) and pd.notna(em) and em > 0 and b / em < er:
+            w.append(f"入口p25が中央の{b / em * 100:.0f}%=安値側にゴミ")
+        # **買い線が安値4分の1より下なら、まず落とせん。**
+        # 買い線 = 出口×0.84 − 送料 − 最低利益¥30,000 やから、粗利が3万に
+        # 届かん機種はこうなる。数字はプラスでも「買える見込み」が無い。
+        ln = line.get(i)
+        if pd.notna(ln) and pd.notna(b) and b > 0 and ln < b:
+            w.append(f"買い線が落札p25を{(b - ln) / b * 100:.0f}%下回る=まず買えん")
         comp = d["構成"].get(i) if "構成" in d else None
         if isinstance(comp, str) and "セット" in comp:
             w.append("構成にセット混在")
