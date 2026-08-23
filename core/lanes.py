@@ -121,6 +121,36 @@ def _export_from_souba() -> pd.DataFrame:
     return out
 
 
+def verified() -> dict[str, dict]:
+    """人が出口のタイトルを読んで下した判定。`data/exit_verified.csv`。
+
+    **汚染率は入力の汚さで、出力の汚さやない。** purity は中央値の1/5未満を
+    落とした後の数字を出しとるので、汚染率が高い=結果が汚い、とは限らん。
+    2026-08-23 に上位4機種の出口タイトルを全部読んだら:
+
+    | 機種 | 汚染率 | 出口IQR | 実際 |
+    |---|---|---|---|
+    | ICOM IC-7610 | 17.5% | 0.21 | 66件全部が実機単体。安値はDOA明記 |
+    | TECHNICS SL-1200G | 20.3% | 0.21 | 38件全部が単体 |
+    | ICOM IC-9700 | 25.4% | 0.18 | 105件、セット混入1件だけ |
+    | MAMIYA 7II | 18.6% | **0.46** | **レンズキットが中央値を吊り上げ→却下のまま** |
+
+    汚染率では3清潔と1汚染を区別できんかった。出口IQR は区別しとるが、
+    78機種の中央値が 0.43 で MAMIYA が 0.46 やから、**4例から閾値を決めたら
+    過剰適合**になる。せやから機械の閾値をいじらず、**読んだ事実を記録して
+    その機種だけ汚染の旗を外す**。読んでない機種は今までどおり落ちる。
+    """
+    p = S.DATA / "exit_verified.csv"
+    if not p.exists():
+        return {}
+    d = S.read_csv(p)
+    if d.empty or "機種" not in d:
+        return {}
+    return {str(r["機種"]): {"判定": str(r.get("判定") or ""),
+                            "確認日": str(r.get("確認日") or "")}
+            for _, r in d.iterrows()}
+
+
 def _model_queries() -> dict[str, tuple[str, str]]:
     """機種 -> (ヤフオクの検索語, eBayの検索語)。souba-league の定義をそのまま借りる。"""
     p = S.SOUBA / "data" / "models_export.csv"
@@ -255,6 +285,7 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
     dt = DIRTY if dirty is None else dirty
     tn = THIN_N if thin is None else thin
     er = ENTRY_P25_RATIO
+    ver = verified()
     if df.empty:
         d = df.copy()
         d["要注意"] = pd.Series(dtype=str)
@@ -284,7 +315,12 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
             w.append(f"入口が売値の{b / s_ * 100:.1f}%=左右ズレ疑い")
         v = dirty_s.get(i)
         if pd.notna(v) and v >= dt:
-            w.append(f"汚染{v * 100:.0f}%")
+            # 人が出口を読んで clean と判定しとったら、汚染の旗は外す
+            vr = ver.get(str(d["品"].get(i) if "品" in d else ""), {})
+            if vr.get("判定") == "clean":
+                pass
+            else:
+                w.append(f"汚染{v * 100:.0f}%")
         # 輸出レーンは purity が標本数を出しとる。**空欄は「薄くない」やのうて
         # 「分からん」**や(構成を割れんかった行がそうなる)。0件と未測を同じ
         # 入れ物に入れると盤が嘘をつくのと同じ話で、不明も旗を立てる。
