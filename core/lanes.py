@@ -25,6 +25,8 @@ sedori-board は計算せん。ここも同じで、souba-league が既に出し
 """
 from __future__ import annotations
 
+from urllib.parse import quote_plus
+
 import pandas as pd
 
 from . import sources as S
@@ -35,9 +37,22 @@ FLIP_MARKET = {
     "rakuma_candidates.csv": "ラクマ",
 }
 
+# ---- 行から直接飛べる場所。**盤で見て、その足で動けるように** ----
+# 検索語は souba-league が実際に使っとる jp_q / ebay_q をそのまま流用する。
+# ここで自前のクエリを作ったら、盤で見た母集団と飛んだ先の母集団がズレる。
+YAHOO_SEARCH = "https://auctions.yahoo.co.jp/search/search?p={q}&s1=end&o1=a"
+EBAY_SOLD = "https://www.ebay.com/sch/i.html?_nkw={q}&LH_Sold=1&LH_Complete=1"
+AUCFREE = "https://aucfree.com/search?q={q}"
+
+
+def _q(v) -> str:
+    return quote_plus(str(v or "").strip())
+
+
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
            "買い線", "汚染率", "出口n", "入口n")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
+           "買いに行く", "売りに行く",
            "帯", "構成", "構成差", "出口状態", "型番弱")
 
 # ---- 旗の閾値。**画面のスライダーで動かせるが、既定はここが正本や** ----
@@ -65,6 +80,9 @@ def _export_from_souba() -> pd.DataFrame:
     _num(d, "送料", "out_中央", "in_p25", "in_中央", "粗利/台", "関税自腹",
          "買い線", "out_年台数", "年間粗利")
     buy = d["in_p25"].fillna(d["in_中央"])
+    q = _model_queries()
+    jp = d["機種"].map(lambda m: q.get(m, ("", ""))[0])
+    us = d["機種"].map(lambda m: q.get(m, ("", ""))[1])
     out = pd.DataFrame({
         "品": d["機種"], "レーン": "ヤフオク → eBay US", "種別": "輸出(相場)",
         "仕入面": "ヤフオク(落札p25)", "仕入値": buy,
@@ -74,6 +92,8 @@ def _export_from_souba() -> pd.DataFrame:
         "純利": d["粗利/台"], "年台数": d["out_年台数"],
         "年間粗利": d["年間粗利"], "関税": d["関税自腹"], "買い線": d["買い線"],
         "玉": "", "url": "",
+        "買いに行く": jp.map(lambda v: YAHOO_SEARCH.format(q=_q(v)) if v else ""),
+        "売りに行く": us.map(lambda v: EBAY_SOLD.format(q=_q(v)) if v else ""),
         "根拠": "two_sided.csv(Terapeak 3年実売 × aucfree 12ヶ月)",
     })
     g = _grades()
@@ -95,8 +115,45 @@ def _grades() -> pd.DataFrame:
     return d[keep].rename(columns={"機種": "品"})
 
 
+def _model_queries() -> dict[str, tuple[str, str]]:
+    """機種 -> (ヤフオクの検索語, eBayの検索語)。souba-league の定義をそのまま借りる。"""
+    p = S.SOUBA / "data" / "models_export.csv"
+    if not p.exists():
+        return {}
+    d = S.read_csv(p)
+    if d.empty or "機種" not in d:
+        return {}
+    return {r["機種"]: (str(r.get("jp_q") or ""), str(r.get("ebay_q") or ""))
+            for _, r in d.iterrows()}
+
+
+def _family_queries() -> dict[str, str]:
+    """family -> 検索語。国内行の「売りに行く」(落札相場)を作るのに要る。
+
+    出所は2つ。**master.csv だけでは prospect 系(p_kitchen_* など)が引けん**で、
+    国内78行のうち65行がリンク無しになった。souba-league の models/*.csv が
+    family と query を持っとるので、そっちも全部舐める。
+    """
+    out: dict[str, str] = {}
+    paths = [S.DATA / "snapshot" / "master.csv"]
+    paths += sorted((S.SOUBA / "models").glob("*.csv"))
+    for path in paths:
+        if not path.exists():
+            continue
+        d = S.read_csv(path)
+        if d.empty or "family" not in d or "query" not in d:
+            continue
+        for _, r in d.iterrows():
+            fam = str(r.get("family") or "").strip()
+            q = str(r.get("query") or "").strip()
+            if fam and q:
+                out.setdefault(fam, q)
+    return out
+
+
 def _domestic_from_souba() -> pd.DataFrame:
     """国内レーン。**1行=いま出とる現物1個**や。売切と kill は落とす。"""
+    fam_q = _family_queries()
     rows = []
     for fname, market in FLIP_MARKET.items():
         p = S.SOUBA / "data" / "flip" / fname
@@ -121,6 +178,9 @@ def _domestic_from_souba() -> pd.DataFrame:
             "引かれ": d["median"] - d["price"] - d["net"],
             "純利": d["net"], "年台数": float("nan"),
             "玉": d.get("family", ""), "url": d.get("url", ""),
+            "買いに行く": d.get("url", ""),
+            "売りに行く": d.get("family", "").map(
+                lambda f: AUCFREE.format(q=_q(fam_q.get(f, ""))) if fam_q.get(f) else ""),
             "根拠": fname,
         }))
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()

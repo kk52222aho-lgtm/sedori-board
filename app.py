@@ -369,6 +369,10 @@ with tabs[2]:
                    "関税を引いた後。**ヤフオク再出品**は落札中央 "
                    "×(1−IQRマージン)×(1−落札手数料10%)− 送料¥1,000 で、"
                    "買取店に売る話やのうて**自分が売り手に回る**。")
+        st.caption("🛒 は仕入れ側(輸出=ヤフオク検索・国内=その出品そのもの)、"
+                   "💴 は出口側(輸出=eBayの実売検索・国内=落札相場)へ飛ぶ。"
+                   "検索語は souba-league が測るのに使ったやつと同じやから、"
+                   "**盤で見た母集団と飛んだ先が一致する**。")
         CFG = {
             "仕入値": st.column_config.NumberColumn("仕入", format="¥%d"),
             "売値": st.column_config.NumberColumn(format="¥%d"),
@@ -377,10 +381,13 @@ with tabs[2]:
             "年間粗利": st.column_config.NumberColumn(format="¥%d"),
             "年台数": st.column_config.NumberColumn(format="%.1f 台"),
             "url": st.column_config.LinkColumn("玉", display_text="開く"),
+            "買いに行く": st.column_config.LinkColumn("買いに行く", display_text="🛒"),
+            "売りに行く": st.column_config.LinkColumn("売りに行く", display_text="💴"),
         }
         # **一番左に「どこで買ってどこで売るか」を置く。** これが見出しや
-        SHOW = ["レーン", "品", "仕入面", "仕入値", "売面", "売値", "引かれ",
-                "純利", "年台数", "年間粗利", "帯", "url"]
+        SHOW = ["レーン", "品", "仕入面", "仕入値", "買いに行く",
+                "売面", "売値", "売りに行く", "引かれ", "純利",
+                "年台数", "年間粗利", "帯"]
         for kind, sort_by in (("輸出(相場)", "年間粗利"), ("国内(現物)", "純利")):
             part = ok[ok["種別"] == kind]
             if part.empty:
@@ -406,8 +413,8 @@ with tabs[2]:
         st.caption("**買いキューやない。** 推定利益の降順は上ほど誤りが濃いので、"
                    "旗が立った行はここに落とす。人が実物を読んでから昇格させる。")
         if len(ng):
-            ncols = [c for c in ["品", "仕入面", "仕入値", "売面", "売値", "純利",
-                                 "年台数", "要注意", "url"] if c in ng.columns]
+            ncols = [c for c in ["レーン", "品", "仕入値", "売値", "純利",
+                                 "年台数", "要注意", "買いに行く"] if c in ng.columns]
             st.dataframe(ng.sort_values("純利", ascending=False)[ncols],
                          hide_index=True, width="stretch", height=320,
                          column_config=CFG)
