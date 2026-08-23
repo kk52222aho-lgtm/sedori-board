@@ -162,7 +162,7 @@ def _domestic_from_souba() -> pd.DataFrame:
         d = S.read_csv(p)
         if d.empty:
             continue
-        _num(d, "price", "median", "net")
+        _num(d, "price", "median", "net", "buy_line")
         if "status" in d:
             d = d[d["status"].fillna("") != "SOLD"]
         if "verdict" in d:
@@ -177,6 +177,7 @@ def _domestic_from_souba() -> pd.DataFrame:
             "売面": "ヤフオク(再出品)", "売値": d["median"],
             "引かれ": d["median"] - d["price"] - d["net"],
             "純利": d["net"], "年台数": float("nan"),
+            "買い線": d.get("buy_line"),
             "玉": d.get("family", ""), "url": d.get("url", ""),
             "買いに行く": d.get("url", ""),
             "売りに行く": d.get("family", "").map(
