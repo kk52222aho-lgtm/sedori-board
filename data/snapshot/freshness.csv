@@ -1,5 +1,5 @@
 ﻿データ源,パス,最終更新,状態,備考
-カメラ・工場台帳,C:\dev\souba-league\data\factory\signals.csv,2026-08-24 09:38,生存,ヤフオク → キタムラ/フジヤ買取
+カメラ・工場台帳,C:\dev\souba-league\data\factory\signals.csv,2026-08-24 10:08,生存,ヤフオク → キタムラ/フジヤ買取
 カメラ・検品結果,C:\dev\souba-league\data\camera\candidates_llm.csv,2026-08-07 15:37,生存,判定器: LLM
 カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed.csv,2026-07-25 18:34,生存,流動性と等級の土台
 カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed_wide.csv,2026-07-25 20:42,生存,流動性と等級の土台
