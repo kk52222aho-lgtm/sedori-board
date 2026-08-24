@@ -270,7 +270,18 @@ def _domestic_from_souba() -> pd.DataFrame:
                 lambda f: AUCFREE.format(q=_q(fam_q.get(f, ""))) if fam_q.get(f) else ""),
             "根拠": fname,
         }))
-    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+    if not rows:
+        return pd.DataFrame()
+    # 全NAの列(等級/期待粗利180d は camera/gakki にしか付かん)を放って concat すると
+    # dtype が決まらず pandas が将来の挙動変更を警告する。先に型を決める
+    for g in rows:
+        if "期待粗利180d" in g:
+            g["期待粗利180d"] = pd.to_numeric(g["期待粗利180d"],
+                                            errors="coerce").astype("float64")
+        for c in ("等級", "検品"):
+            if c in g:
+                g[c] = g[c].fillna("").astype(str)
+    return pd.concat(rows, ignore_index=True)
 
 
 def _reverb_from_souba() -> pd.DataFrame:
