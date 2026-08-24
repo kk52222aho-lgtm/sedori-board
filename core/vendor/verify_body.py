@@ -36,7 +36,11 @@ ITEM_URL = "https://aucfree.com/items/{}"
 # 本文は「無い」ことを述べる文脈が少なく、誤検出が起きにくいため。
 BODY_NG = [
     ("ジャンク", r"ジャンク"),
-    ("難あり", r"難あり|難有|訳あり|訳アリ|訳有|傷有|キズ有"),
+    ("難あり", # **「申し訳ありません」が「訳あり」に当たっとった**(2026-08-24)。
+    # マスク救済の玉を人手で読み返して見つかった——今はたまたま免責ゾーン
+    # の内側にあって消えとるが、**マスクが無い文脈なら撃墜する**。
+    # マスクが誤爆を隠しとる形で、語彙そのものが間違うとる。
+    r"難あり|難有|(?<!申し)(?<!申)訳あり|訳アリ|訳有|傷有|キズ有"),
     # 「未点検」「未清掃」は 動作未確認 と同じ意味やのに漏れとった。
     # 2026-08-07: 【未点検・未清掃】のSEL18200LEが生存判定で残り、
     # 盤の実弾GO筆頭(¥28,200/180日)に化けとった。買取は正常作動の良品前提や。
@@ -618,16 +622,45 @@ def judge(body: str) -> tuple[str, str]:
         return "unknown", "本文が短すぎる"
     if body is None:
         return "unknown", "取得不能"
+    verdict, hit, _ = judge_detail(body)
+    return verdict, hit
+
+
+def judge_detail(body: str) -> tuple[str, str, str]:
+    """(verdict, hit, **マスク救済**) を返す。
+
+    ## なんでこれが要るか
+    2026-08-24 に免責マスクを緩めて、撃墜の誤爆25%を潰した。ただ**その検証は
+    構造的に片側しか測れてへん**:
+
+        マスクは撃墜語を無効化する変更 → 「落とすようになった0本」は
+        測定の結果やのうて**保証された挙動**や。証拠として使えん
+
+    この変更が生む失敗は「**真の**引取限定を通す」方向やのに、コーパス78本に
+    その失敗型のラベルが1件も無い。**測れてへん**が正しい。
+
+    測れんなら、せめて**どの玉が測れてへんかを名指しする**。マスクが実際に
+    発火して撃墜語を消した玉だけを取り出せば、それが人に渡すべき集合や。
+    マスクが一度も発火せんかった玉は、そもそもこの変更と関係ない。
+
+    第3の戻り値は「マスクが無かったら撃墜されとった語」を `|` で繋いだもの。
+    空なら、この玉の生存はマスクと無関係や。
+    """
     zones = _disclaimer_zones(body)
     zones_fwd = _disclaimer_zones(body, closing=False)
-    hits = []
+    hits, rescued = [], []
     for name, pat in BODY_NG:
         z = zones_fwd if name in STRUCTURAL else zones
-        if any(_is_live_hit(body, m, z) for m in pat.finditer(body)):
+        ms = list(pat.finditer(body))
+        if any(_is_live_hit(body, m, z) for m in ms):
             hits.append(name)
+        elif ms:
+            # 一致はあったのに、全部ゾーンか否定形で消えた = **マスクに救われた**
+            rescued.append(name)
     if hits:
-        return "kill", "|".join(hits)
-    return "keep", ("良好語あり" if BODY_OK.search(body) else "")
+        return "kill", "|".join(hits), "|".join(rescued)
+    return ("keep", ("良好語あり" if BODY_OK.search(body) else ""),
+            "|".join(rescued))
 
 
 def _load_done(out_path, src_path) -> dict:

@@ -74,6 +74,9 @@ RULES = [
     ("構成セット混在", ("構成",), "セットと単体を同じ上限で見とる"),
     ("構成差", ("構成差",), "トリム後もIQRが閾値超え"),
     ("型番弱", ("型番弱",), "型番の照合が弱い"),
+    # **行ごとに当てはまるかが変わる規則もある。** 検品は「いま買える玉が
+    # ある行」にしか意味が無い。玉が無い行の空欄を穴と数えたら、
+    # 輸出85行が丸ごと未検査に見える(2026-08-24に誤検出した)
     ("検品", ("検品",), "本文に欠陥の自白が無いか"),
 ]
 
@@ -84,6 +87,18 @@ def filled(s: pd.Series) -> pd.Series:
         return s.notna()
     t = s.astype(str).str.strip()
     return s.notna() & (t != "") & (t.str.lower() != "nan")
+
+
+# 規則名 -> その行で規則が当てはまる条件(この列が 0 より大きいこと)
+ONLY_WHEN = {"検品": "いま買える"}
+
+
+def rows_in_scope(df: pd.DataFrame, name: str) -> pd.Series:
+    """その規則が当てはまる行。当てはまらん行の空欄は穴やない。"""
+    col = ONLY_WHEN.get(name)
+    if not col or col not in df:
+        return pd.Series(True, index=df.index)
+    return pd.to_numeric(df[col], errors="coerce").fillna(0) > 0
 
 
 def applicable(df: pd.DataFrame, cols) -> bool:
@@ -115,11 +130,13 @@ def report(df: pd.DataFrame, label: str) -> None:
         if not applicable(df, cols):
             skipped.append(name)
             continue
+        scope = rows_in_scope(df, name)
         missing = pd.Series(False, index=df.index)
         for c in cols:
             if c in BLANK_IS_NEGATIVE:
                 continue          # 空欄=検査して該当せんかった。穴やない
             missing |= ~filled(df[c])
+        missing &= scope           # 当てはまらん行は穴に数えん
         hit = df["要注意"].fillna("").astype(str).str.contains(
             name.replace("が届かん", "").replace("疑い", ""), regex=False)
         silent = int((missing & ~hit).sum())
@@ -139,7 +156,16 @@ def report(df: pd.DataFrame, label: str) -> None:
         need = [c for _n, cs, _w in RULES if applicable(df, cs) for c in cs
                 if c not in BLANK_IS_NEGATIVE]
         need = [c for c in dict.fromkeys(need)]
-        full = noflag[need].apply(filled).all(axis=1)
+        ok = pd.Series(True, index=noflag.index)
+        for nm, cs, _w in RULES:
+            if not applicable(df, cs):
+                continue
+            sc = rows_in_scope(noflag, nm)
+            for c in cs:
+                if c in BLANK_IS_NEGATIVE:
+                    continue
+                ok &= filled(noflag[c]) | ~sc
+        full = ok
         print(f"   **旗なし {len(noflag)}行のうち、入力が全部揃って旗なし: "
               f"{int(full.sum())}行** ({full.mean() * 100:.0f}%)")
         if full.mean() < 1:

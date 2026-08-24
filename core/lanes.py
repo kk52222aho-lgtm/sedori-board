@@ -52,12 +52,18 @@ def _q(v) -> str:
 
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
            "買い線", "入口中央", "買線内", "汚染率", "出口n", "入口n",
+           "棚年数",
            "出口生", "出口本体", "期待粗利180d", "いま買える", "いま最安",
            "相場n", "相場p25", "売値$", "p25$", "売れる間隔", "実測滞留",
            "フリマなら")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く", "走査", "検品", "等級",
-           "帯", "構成", "構成差", "出口状態", "型番弱")
+           "帯", "構成", "構成差", "出口状態", "型番弱",
+           # 🚨 **NUMERIC に入れとって `pd.to_numeric("ジャンク|…")` が NaN に
+           # なり、旗が黙って消えとった**(2026-08-24)。同じ日に「欠損が有利側の
+           # 値に化ける」を3件潰した直後に、俺が4件目を作っとった。
+           # **列を足す時は型の登録先を必ず確かめる。**
+           "マスク救済")
 
 # ---- 旗の閾値。**画面のスライダーで動かせるが、既定はここが正本や** ----
 # Reverb(楽器・音響の海外出口)。**式は souba-league の reverb_probe.py から借りる。**
@@ -186,10 +192,50 @@ def _export_from_souba() -> pd.DataFrame:
              if _hits(m, f * LIVE_MIN_RATIO) else
              (YAHOO_SEARCH.format(q=_q(v)) if v else ""))
             for m, v, f in zip(d["機種"], jp, d["入口p25"])],
+        # **その玉が「マスクに救われて生き残った」なら名指しする。**
+        # 免責マスクを緩めた変更は「落とすようになった0本」が保証された挙動で、
+        # 失敗方向(真の欠陥を通す)は測れてへん(2026-08-24)。測れんなら、
+        # せめて**測れてへん玉を人に渡す**。空欄なら生存はマスクと無関係や
+        "マスク救済": [
+            "|".join(sorted({x.get("マスク救済", "") for x in
+                             _hits(m, f * LIVE_MIN_RATIO)} - {""}))
+            for m, f in zip(d["機種"], d["入口p25"])],
+        # **輸出行にも検品を出す。** 買える玉は fleet_watch が本文を読んどるのに
+        # 列が空で、「検品してへん」の旗が誤発火しとった(2026-08-24)。
+        # 玉が無い行は空欄のまま——そっちは検査対象やない
+        "検品": [
+            "|".join(sorted({x.get("verdict", "") for x in
+                             _hits(m, f * LIVE_MIN_RATIO)} - {""}))
+            for m, f in zip(d["機種"], d["入口p25"])],
+        "棚年数": d["機種"].map(lambda m: _shelf_years().get(str(m))),
         "売りに行く": us.map(lambda v: EBAY_SOLD.format(q=_q(v)) if v else ""),
         "根拠": "purity.csv(トリム+構成分割済み。Terapeak 3年実売 × aucfree 12ヶ月)",
     })
     return out
+
+
+def _shelf_years() -> dict[str, float]:
+    """機種 -> 棚年数。`souba-league/data/sell_through.csv`。
+
+    **値段の差だけ見とったら、買い手が年に何人おるかが抜ける。**
+    棚年数 = 今 eBay に出とる本数 ÷ (直近3年の実売台数 ÷ 3)。
+    「今の在庫が捌けるのに何年かかるか」や。2026-08-24 の実測:
+
+        PANA HC-X2000  0.4年 / SONY PXW-Z190 1.2年   ← 捌ける面
+        HIOKI PW3360  18.3年 / HIOKI LR8450 50.4年   ← 棚が動かん
+
+    同じ「純利+¥7万」でも中身が別物になる。**割合(sold率)にはせん**——
+    3年の流量と一時点の在庫を混ぜた数字は意味を持たんからや。
+    """
+    p = S.SOUBA / "data" / "sell_through.csv"
+    if not p.exists():
+        return {}
+    d = S.read_csv(p)
+    if d.empty:
+        return {}
+    _num(d, "棚年数")
+    return {str(r["機種"]): r["棚年数"] for _, r in d.iterrows()
+            if pd.notna(r["棚年数"])}
 
 
 def verified() -> dict[str, dict]:
@@ -263,6 +309,10 @@ def _live_buys() -> dict[str, list[dict]]:
             "price": r.get("cur_price"),
             "title": str(r.get("title") or ""),
             "verdict": str(r.get("本文判定") or ""),
+            # `str(NaN)` は "nan" いう**文字列**になる。欠損が値に化ける
+            # 形がここにも出た(2026-08-24)。空文字に潰す
+            "マスク救済": ("" if pd.isna(r.get("マスク救済"))
+                        else str(r.get("マスク救済") or "")),
         })
     for v in out.values():
         v.sort(key=lambda x: (x["price"] if pd.notna(x["price"]) else 1e18))
@@ -667,6 +717,17 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
                 and pd.notna(pd.to_numeric(buyable, errors="coerce"))
                 and float(pd.to_numeric(buyable, errors="coerce")) > 0):
             w.append("検品してへん")
+        # **マスクに救われた玉は監査キューへ。** 生存が「欠陥語が無い」やのうて
+        # 「消した」やった玉や。コーパス78本では19%(15本)がこれに当たる
+        # **棚が動かん面は、粗利が出とっても金が返ってこん。**
+        # HIOKI PW3360 は eBay に67本並んどって年3.7台しか売れとらん=18年分。
+        # 「年台数」は出口の流量だけを見とって、**競合の在庫**を見てへんかった
+        sh = num("棚年数").get(i)
+        if pd.notna(sh) and sh >= 5:
+            w.append(f"棚{sh:.0f}年分=在庫が動かん")
+        resc = d["マスク救済"].get(i) if "マスク救済" in d else None
+        if isinstance(resc, str) and resc.strip():
+            w.append(f"マスクで生存[{resc.strip()}]=人が本文を読む")
         weak = d["型番弱"].get(i) if "型番弱" in d else None
         if isinstance(weak, str) and weak.strip():
             w.append(f"型番弱[{weak.strip()}]")
