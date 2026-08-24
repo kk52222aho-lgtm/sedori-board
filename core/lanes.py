@@ -52,8 +52,8 @@ def _q(v) -> str:
 
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
            "買い線", "入口中央", "買線内", "汚染率", "出口n", "入口n",
-           "出口生", "出口本体", "期待粗利180d", "いま買える", "相場n",
-           "相場p25")
+           "出口生", "出口本体", "期待粗利180d", "いま買える", "いま最安",
+           "相場n", "相場p25")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く", "走査", "検品", "等級",
            "帯", "構成", "構成差", "出口状態", "型番弱")
@@ -68,6 +68,15 @@ TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠",
 # メルカリとラクマの走査器はブラウザが要るので定期実行に載っとらん。
 # **status は走査した時にしか更新されんので、古い行は SOLD にならず生き残る。**
 STALE_HOURS = 48
+
+# 🚨 **買い線の内側=その商品、やない。**
+# ヤフオク側は英語の ACC_RE しか通っとらんので、日本語の付属品が本体判定を抜ける:
+#   ¥7,980 「marantz SACDプレーヤー SA-10 プリメインアンプ PM-10 純正 リモコン」
+#   ¥4,400 「【製作品】Technics SL-1200GAE SL-1200G SL-1200GR SL-1500C …」
+# しかも must_re の `SL-1200G` が `SL-1200GAE/GR` を飲むので対応表判定も効かん。
+# 語彙で追うと際限が無いから**値段で切る**。入口p25のこの割合を下回る玉は、
+# 40万のSACDプレーヤーが7,980円で出とる、いう話にしかならん。
+LIVE_MIN_RATIO = 0.30
 
 REVERB_FEE = 0.1325
 JPY = 163.5              # purity.py と同じレート
@@ -116,12 +125,17 @@ def _export_from_souba() -> pd.DataFrame:
     q = _model_queries()
     live = _live_buys()
 
-    def _hits(name: str) -> list[dict]:
+    def _hits(name: str, floor=None) -> list[dict]:
         k = _norm_model(name)
+        got: list[dict] = []
         for t, v in live.items():
             if t and (t in k or k in t):
-                return v
-        return []
+                got = v
+                break
+        if floor is not None and pd.notna(floor) and floor > 0:
+            got = [x for x in got
+                   if pd.notna(x["price"]) and x["price"] >= floor]
+        return got
 
     jp = d["機種"].map(lambda m: q.get(m, ("", ""))[0])
     us = d["機種"].map(lambda m: q.get(m, ("", ""))[1])
@@ -143,11 +157,17 @@ def _export_from_souba() -> pd.DataFrame:
         "出口状態": d.get("出口状態", ""),
         "玉": "", "url": "",
         # **いま買い線の内側におる玉があれば、検索やのうてその出品へ直接飛ばす。**
-        "いま買える": d["機種"].map(lambda m: float(len(_hits(m)))),
+        "いま買える": [float(len(_hits(m, f * LIVE_MIN_RATIO)))
+                       for m, f in zip(d["機種"], d["入口p25"])],
+        # **件数だけでは動けん。** いくらで出とるかまで見せる
+        "いま最安": [(_hits(m, f * LIVE_MIN_RATIO)[0]["price"]
+                    if _hits(m, f * LIVE_MIN_RATIO) else float("nan"))
+                   for m, f in zip(d["機種"], d["入口p25"])],
         "買いに行く": [
-            (_hits(m)[0]["url"] if _hits(m) else
+            (_hits(m, f * LIVE_MIN_RATIO)[0]["url"]
+             if _hits(m, f * LIVE_MIN_RATIO) else
              (YAHOO_SEARCH.format(q=_q(v)) if v else ""))
-            for m, v in zip(d["機種"], jp)],
+            for m, v, f in zip(d["機種"], jp, d["入口p25"])],
         "売りに行く": us.map(lambda v: EBAY_SOLD.format(q=_q(v)) if v else ""),
         "根拠": "purity.csv(トリム+構成分割済み。Terapeak 3年実売 × aucfree 12ヶ月)",
     })
@@ -203,6 +223,16 @@ def _live_buys() -> dict[str, list[dict]]:
     if d.empty:
         return {}
     d = d.sort_values("checked_at").drop_duplicates("auction_id", keep="last")
+    # 🚨 **買い線の内側=買える、やない。** fleet_watch は本文も読んどって、
+    # 2026-08-24 の実測では under_max の14件中**6件が kill**やった
+    #   TASCAM DA-3000 ¥34,000  [動作未確認]
+    #   SONY PXW-Z190 ¥161,013  [ジャンク|動作未確認]
+    #   YOKOGAWA WT1800 ¥474,100 [ジャンク]
+    # 撃墜された玉に飛ばしたら、盤が嘘をついたことになる。
+    if "本文判定" in d:
+        d = d[d["本文判定"].fillna("").astype(str) != "kill"]
+    if d.empty:
+        return {}
     _num(d, "cur_price", "max_bid")
     out: dict[str, list[dict]] = {}
     for _, r in d.iterrows():
@@ -210,6 +240,7 @@ def _live_buys() -> dict[str, list[dict]]:
             "url": str(r.get("url") or ""),
             "price": r.get("cur_price"),
             "title": str(r.get("title") or ""),
+            "verdict": str(r.get("本文判定") or ""),
         })
     for v in out.values():
         v.sort(key=lambda x: (x["price"] if pd.notna(x["price"]) else 1e18))
