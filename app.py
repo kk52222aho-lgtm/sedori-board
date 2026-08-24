@@ -327,8 +327,9 @@ with tabs[2]:
                           LN.MIN_BUY_RATIO, 0.01, format="%.2f",
                           help="仕入と売値の桁が違う行は、引き算の左右がズレとる疑いや")
         dirty = c2.slider("汚染率がこれ以上なら旗", 0.0, 0.50, LN.DIRTY, 0.05)
-        kinds = c3.multiselect("見るレーン", ["輸出(相場)", "国内(現物)"],
-                               default=["輸出(相場)", "国内(現物)"])
+        # **種別を固定で書いたら新しい面が黙って消える。** データから拾う
+        all_kinds = sorted(lanes["種別"].dropna().unique()) if "種別" in lanes else []
+        kinds = c3.multiselect("見るレーン", all_kinds, default=all_kinds)
 
         view = lanes[lanes["種別"].isin(kinds)] if kinds else lanes.iloc[0:0]
         view = LN.flags(view, ratio=ratio, dirty=dirty)

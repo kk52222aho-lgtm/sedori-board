@@ -57,6 +57,13 @@ TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠",
            "帯", "構成", "構成差", "出口状態", "型番弱")
 
 # ---- 旗の閾値。**画面のスライダーで動かせるが、既定はここが正本や** ----
+# Reverb(楽器・音響の海外出口)。**式は souba-league の reverb_probe.py から借りる。**
+#   FEE_XB = 0.1325(越境の手数料)/ ship = 2000 + kg*3000(国際送料のざっくり)
+# こっちで作り直したら、向こうの判定と盤の数字がズレる。
+REVERB_FEE = 0.1325
+JPY = 163.5              # purity.py と同じレート
+MIN_NET = 30000          # purity.py と同じ
+
 MIN_BUY_RATIO = 0.05   # 仕入値が売値のこれ未満 = 引き算の左右がズレとる疑い
 DIRTY = 0.15           # purity の汚染率がこれ以上 = 母集団に別物が混ざっとる
 BODY_RATE = 0.20       # 打ち切りに当たった上で本体率がこれ未満 = 中央値が壊れとる
@@ -226,6 +233,68 @@ def _domestic_from_souba() -> pd.DataFrame:
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
 
+def _reverb_from_souba() -> pd.DataFrame:
+    """Reverb レーン。**ask は一切使わん。** live→sold に化けた玉の中央値だけ。
+
+    2026-08-24 に個体追跡で分かったこと: **ask と sold の差は −6〜−31%(中央 −19%)**。
+    ask で組んだら「海外が高い」に必ず傾く。せやから `state == "sold"` の行だけ拾う。
+
+    その代わり**標本が薄い**。追跡を始めて7日で13件しか化けとらんので、
+    ほとんどの型番が `出口標本N件` の旗で監査キューに落ちる。**それでええ**——
+    追跡が続けば件数が増えて、閾値を越えた型番から自動で買い候補に上がる。
+    """
+    trk = S.SOUBA / "data" / "flip" / "reverb_track.csv"
+    prb = S.SOUBA / "data" / "flip" / "reverb.csv"
+    med = S.SOUBA / "data" / "flip" / "medians.csv"
+    if not (trk.exists() and prb.exists() and med.exists()):
+        return pd.DataFrame()
+    t, pr, md = S.read_csv(trk), S.read_csv(prb), S.read_csv(med)
+    if t.empty or pr.empty or md.empty:
+        return pd.DataFrame()
+    _num(t, "price_usd")
+    _num(pr, "kg")
+    _num(md, "median", "p25", "n")
+    sold = t[t["state"] == "sold"]
+    if sold.empty:
+        return pd.DataFrame()
+    kg = dict(zip(pr["family"], pr["kg"]))
+    q = dict(zip(pr["family"], pr.get("query", pr["family"])))
+    jp_mid = dict(zip(md["family"], md["median"]))
+    jp_p25 = dict(zip(md["family"], md["p25"]))
+    jp_n = dict(zip(md["family"], md["n"]))
+    fam_q = _family_queries()
+
+    rows = []
+    for fam, g in sold.groupby("family"):
+        us = float(g["price_usd"].median()) * JPY
+        w = float(kg.get(fam) or 3)
+        ship = 2000 + w * 3000                      # reverb_probe.py と同じ式
+        buy = jp_p25.get(fam)
+        if buy is None or pd.isna(buy):
+            buy = jp_mid.get(fam)
+        if buy is None or pd.isna(buy):
+            continue
+        net = us * (1 - REVERB_FEE) - ship - float(buy)
+        line = us * (1 - REVERB_FEE) - ship - MIN_NET
+        jq = fam_q.get(fam, "")
+        rows.append({
+            "品": str(q.get(fam, fam)), "レーン": "ヤフオク → Reverb US",
+            "種別": "輸出(Reverb)",
+            "仕入面": "ヤフオク(落札p25)", "仕入値": float(buy),
+            "売面": f"Reverb 実売中央({len(g)}件)", "売値": us,
+            "引かれ": us - float(buy) - net,
+            "純利": net, "買い線": line,
+            "年台数": float("nan"), "年間粗利": float("nan"),
+            "出口n": float(len(g)), "入口n": float(jp_n.get(fam) or 0),
+            "入口中央": float(jp_mid.get(fam) or 0),
+            "玉": fam, "url": "",
+            "買いに行く": (YAHOO_SEARCH.format(q=_q(jq)) if jq else ""),
+            "売りに行く": f"https://reverb.com/marketplace?query={_q(q.get(fam, fam))}",
+            "根拠": "reverb_track.csv(live→soldに化けた玉のみ)× medians.csv",
+        })
+    return pd.DataFrame(rows)
+
+
 def combine(*frames: pd.DataFrame) -> pd.DataFrame:
     """列と型を揃えてから縦に積む。
 
@@ -254,7 +323,8 @@ def combine(*frames: pd.DataFrame) -> pd.DataFrame:
 
 def build() -> pd.DataFrame:
     """souba-league から作る。**export_snapshot.py 専用**(ローカルでしか動かん)。"""
-    return combine(_export_from_souba(), _domestic_from_souba())
+    return combine(_export_from_souba(), _domestic_from_souba(),
+                   _reverb_from_souba())
 
 
 def load() -> pd.DataFrame:
