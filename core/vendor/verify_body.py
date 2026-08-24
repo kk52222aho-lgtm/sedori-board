@@ -611,6 +611,11 @@ def _is_live_hit(body: str, m: re.Match, zones: list[tuple[int, int]]) -> bool:
 
 def judge(body: str) -> tuple[str, str]:
     """(verdict, hit) を返す。verdict は kill / keep / unknown。"""
+    # **空の本文を「欠陥語が無い=keep」と読んだらあかん。** 取得は成功したが
+    # 抽出が空振りした時にこうなる。None は unknown になるのに、空文字は
+    # keep に化けとった(2026-08-24)。短すぎる本文は見てへんのと同じや
+    if body is not None and len((body or "").strip()) < 30:
+        return "unknown", "本文が短すぎる"
     if body is None:
         return "unknown", "取得不能"
     zones = _disclaimer_zones(body)

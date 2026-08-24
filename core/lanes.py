@@ -248,7 +248,11 @@ def _live_buys() -> dict[str, list[dict]]:
     #   YOKOGAWA WT1800 ¥474,100 [ジャンク]
     # 撃墜された玉に飛ばしたら、盤が嘘をついたことになる。
     if "本文判定" in d:
-        d = d[d["本文判定"].fillna("").astype(str) != "kill"]
+        # 🚨 **`!= "kill"` やと未検品(空)と取得不能(unknown)が生存として通る。**
+        # 走査器の fleet_watch は `== "keep"` で閉じとるのに、盤だけ開いとった
+        # (2026-08-24)。`judge()` は本文が取れんかったら "unknown" を返す——
+        # 「欠陥が無い」やのうて「見てへん」や。同じ列を逆向きに読んどった
+        d = d[d["本文判定"].fillna("").astype(str) == "keep"]
     if d.empty:
         return {}
     _num(d, "cur_price", "max_bid")
@@ -356,7 +360,8 @@ def _domestic_from_souba() -> pd.DataFrame:
         if "status" in d:
             d = d[d["status"].fillna("") != "SOLD"]
         if "verdict" in d:
-            d = d[d["verdict"].fillna("") != "kill"]
+            # 上と同じ。未検品を生存扱いにせん(flea_xtab には unknown が実在する)
+            d = d[d["verdict"].fillna("") == "keep"]
         d = d[d["net"].notna()]
         if d.empty:
             continue
@@ -464,7 +469,11 @@ def _reverb_from_souba() -> pd.DataFrame:
             "純利": net, "買い線": line, "実測滞留": stay,
             "年台数": float("nan"), "年間粗利": float("nan"),
             "出口n": float(len(g)), "入口n": float(jp_n.get(fam) or 0),
-            "入口中央": float(jp_mid.get(fam) or 0),
+            # 🚨 **`or 0` の向きが規則によって逆になる。** 同じ行の
+            # 入口n は 0 やと `v < 10` に当たって旗が立つ(閉じる)が、
+            # 入口中央は 0 やと flags の `em > 0` で**規則ごと飛ぶ**(開く)。
+            # 不明は NaN のまま渡して、旗側で「不明」として拾わせる
+            "入口中央": float(jp_mid.get(fam) or float("nan")),
             "玉": fam, "url": "",
             "買いに行く": (YAHOO_SEARCH.format(q=_q(jq)) if jq else ""),
             "売りに行く": f"https://reverb.com/marketplace?query={_q(q.get(fam, fam))}",
@@ -605,6 +614,22 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         em = entry_mid.get(i)
         if pd.notna(b) and pd.notna(em) and em > 0 and b / em < er:
             w.append(f"入口p25が中央の{b / em * 100:.0f}%=安値側にゴミ")
+        elif (pd.notna(b) and not pd.notna(em)
+                and not pd.notna(dirty_s.get(i))
+                and "p25" in str(d["仕入面"].get(i) if "仕入面" in d else "")):
+            # **入口中央が無い行では、この規則は一度も走っとらん。**
+            # 空欄を「検査して問題なし」と読ませたらあかん。
+            #
+            # ただし **purity 由来の行は除く**。あっちは入口p25の桁トリムを
+            # 先に通しとるので、安値ゴミの検査は別の形で済んどる(上の
+            # 「入口中央は purity に無いので…」のコメントの通り)。
+            # 見分けは汚染率の有無や——purity の行だけが汚染率を持つ。
+            # **国内(現物)も除く。** あっちの仕入値は実在の1個の値段で、
+            # 入口の分布やない。「p25が中央の何%か」は分布の統計にしか
+            # 意味が無いので、仕入面が p25 と名乗っとる行だけに当てる。
+            # 初版はこれを外しとって**126行中126行に旗が立った**。
+            # 旗が全部に立つのは、旗が無いのと同じや(2026-08-24)
+            w.append("入口中央が不明=安値ゴミの検査でけてへん")
         # **買い線が安値4分の1より下なら、まず落とせん。**
         # 買い線 = 出口×0.84 − 送料 − 最低利益¥30,000 やから、粗利が3万に
         # 届かん機種はこうなる。数字はプラスでも「買える見込み」が無い。
@@ -634,6 +659,14 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
             # どっちも「出口の母集団が一種類か」を別の角度で見とるだけ
             if ver.get(str(d["品"].get(i) if "品" in d else ""), {}).get("判定") != "clean":
                 w.append(f"構成差[{diff.strip()}]")
+        # **買える顔で出しとる行に検品が無いのは、旗を立てなあかん。**
+        # 「検品が空欄」は「欠陥が無い」やのうて「本文を読んでへん」や
+        insp = d["検品"].get(i) if "検品" in d else None
+        buyable = d["いま買える"].get(i) if "いま買える" in d else None
+        if (isinstance(insp, str) and not insp.strip()
+                and pd.notna(pd.to_numeric(buyable, errors="coerce"))
+                and float(pd.to_numeric(buyable, errors="coerce")) > 0):
+            w.append("検品してへん")
         weak = d["型番弱"].get(i) if "型番弱" in d else None
         if isinstance(weak, str) and weak.strip():
             w.append(f"型番弱[{weak.strip()}]")
