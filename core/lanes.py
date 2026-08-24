@@ -53,7 +53,7 @@ def _q(v) -> str:
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
            "買い線", "入口中央", "買線内", "汚染率", "出口n", "入口n",
            "出口生", "出口本体", "期待粗利180d", "いま買える", "いま最安",
-           "相場n", "相場p25", "売値$", "p25$")
+           "相場n", "相場p25", "売値$", "p25$", "売れる間隔", "実測滞留")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く", "走査", "検品", "等級",
            "帯", "構成", "構成差", "出口状態", "型番弱")
@@ -146,6 +146,9 @@ def _export_from_souba() -> pd.DataFrame:
         # **いくらで売るか。** 円換算の中央値だけでは eBay に出せん。
         # p25 は「早く捌きたい時の下側」、中央は「そこで実際に捌けた値段」。
         # 裏付けの件数(出口n)を横に置いて、1件の中央値と区別できるようにする。
+        # 米国市場が何日に1台吸収しとるか。**あんたの出品のETAやない**——
+        # 他の出品と競るので、これは市場の回転の速さや
+        "売れる間隔": (365.0 / d["年台数"]).where(d["年台数"] > 0),
         "売値$": d["出口中央"] / JPY,
         "p25$": d["出口p25"] / JPY,
         "相場n": d["出口n"], "相場p25": d["出口p25"],
@@ -358,6 +361,11 @@ def _domestic_from_souba() -> pd.DataFrame:
             "買い線": d.get("buy_line"),
             "玉": d.get("family", ""), "url": d.get("url", ""),
             "走査": d.get("scanned_at", ""),
+            # medians.csv の n は**過去180日**の落札数(backtest_flip.py)。
+            # 年換算は n×2、平均間隔は 182.5/n 日
+            "売れる間隔": d.get("family", "").map(
+                lambda f: (182.5 / dist[str(f)][0])
+                if dist.get(str(f)) and dist[str(f)][0] else float("nan")),
             "相場n": d.get("family", "").map(
                 lambda f: dist.get(str(f), (float("nan"), float("nan")))[0]),
             "相場p25": d.get("family", "").map(
@@ -405,7 +413,7 @@ def _reverb_from_souba() -> pd.DataFrame:
     t, pr, md = S.read_csv(trk), S.read_csv(prb), S.read_csv(med)
     if t.empty or pr.empty or md.empty:
         return pd.DataFrame()
-    _num(t, "price_usd")
+    _num(t, "price_usd", "days_listed")
     _num(pr, "kg")
     _num(md, "median", "p25", "n")
     sold = t[t["state"] == "sold"]
@@ -421,6 +429,9 @@ def _reverb_from_souba() -> pd.DataFrame:
     rows = []
     for fam, g in sold.groupby("family"):
         us = float(g["price_usd"].median()) * JPY
+        # **ここだけが本物の「売れるまで」**。live→sold に化けた個体の掲載日数や
+        dl = pd.to_numeric(g.get("days_listed"), errors="coerce").dropna()
+        stay = float(dl.median()) if len(dl) else float("nan")
         w = float(kg.get(fam) or 3)
         ship = 2000 + w * 3000                      # reverb_probe.py と同じ式
         buy = jp_p25.get(fam)
@@ -437,7 +448,7 @@ def _reverb_from_souba() -> pd.DataFrame:
             "仕入面": "ヤフオク(落札p25)", "仕入値": float(buy),
             "売面": f"Reverb 実売中央({len(g)}件)", "売値": us,
             "引かれ": us - float(buy) - net,
-            "純利": net, "買い線": line,
+            "純利": net, "買い線": line, "実測滞留": stay,
             "年台数": float("nan"), "年間粗利": float("nan"),
             "出口n": float(len(g)), "入口n": float(jp_n.get(fam) or 0),
             "入口中央": float(jp_mid.get(fam) or 0),
