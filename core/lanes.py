@@ -25,6 +25,7 @@ sedori-board は計算せん。ここも同じで、souba-league が既に出し
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import quote_plus
 
 import pandas as pd
@@ -51,7 +52,8 @@ def _q(v) -> str:
 
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
            "買い線", "入口中央", "買線内", "汚染率", "出口n", "入口n",
-           "出口生", "出口本体", "期待粗利180d")
+           "出口生", "出口本体", "期待粗利180d", "いま買える", "相場n",
+           "相場p25")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く", "走査", "検品", "等級",
            "帯", "構成", "構成差", "出口状態", "型番弱")
@@ -112,6 +114,15 @@ def _export_from_souba() -> pd.DataFrame:
     if d.empty:
         return pd.DataFrame()
     q = _model_queries()
+    live = _live_buys()
+
+    def _hits(name: str) -> list[dict]:
+        k = _norm_model(name)
+        for t, v in live.items():
+            if t and (t in k or k in t):
+                return v
+        return []
+
     jp = d["機種"].map(lambda m: q.get(m, ("", ""))[0])
     us = d["機種"].map(lambda m: q.get(m, ("", ""))[1])
     out = pd.DataFrame({
@@ -131,7 +142,12 @@ def _export_from_souba() -> pd.DataFrame:
         "構成差": d.get("構成差", ""), "型番弱": d.get("型番弱", ""),
         "出口状態": d.get("出口状態", ""),
         "玉": "", "url": "",
-        "買いに行く": jp.map(lambda v: YAHOO_SEARCH.format(q=_q(v)) if v else ""),
+        # **いま買い線の内側におる玉があれば、検索やのうてその出品へ直接飛ばす。**
+        "いま買える": d["機種"].map(lambda m: float(len(_hits(m)))),
+        "買いに行く": [
+            (_hits(m)[0]["url"] if _hits(m) else
+             (YAHOO_SEARCH.format(q=_q(v)) if v else ""))
+            for m, v in zip(d["機種"], jp)],
         "売りに行く": us.map(lambda v: EBAY_SOLD.format(q=_q(v)) if v else ""),
         "根拠": "purity.csv(トリム+構成分割済み。Terapeak 3年実売 × aucfree 12ヶ月)",
     })
@@ -166,6 +182,43 @@ def verified() -> dict[str, dict]:
     return {str(r["機種"]): {"判定": str(r.get("判定") or ""),
                             "確認日": str(r.get("確認日") or "")}
             for _, r in d.iterrows()}
+
+
+def _live_buys() -> dict[str, list[dict]]:
+    """機種 -> **いま買い線の内側におるヤフオク**の一覧。
+
+    `fleet_watch` が1時間おきに見て `data/fleet/buy_targets.csv` に書いとる。
+    盤は今まで**検索ページに飛ばすだけ**で、「いま玉があるか」を答えてへんかった。
+    `under_max` が True の行だけ拾って、安い順で出す。
+
+    同じ auction_id が何度も記録されとるので**最後に見た行だけ**採る。
+    """
+    p = S.SOUBA / "data" / "fleet" / "buy_targets.csv"
+    if not p.exists():
+        return {}
+    d = S.read_csv(p)
+    if d.empty or "under_max" not in d:
+        return {}
+    d = d[d["under_max"].astype(str) == "True"]
+    if d.empty:
+        return {}
+    d = d.sort_values("checked_at").drop_duplicates("auction_id", keep="last")
+    _num(d, "cur_price", "max_bid")
+    out: dict[str, list[dict]] = {}
+    for _, r in d.iterrows():
+        out.setdefault(_norm_model(r.get("target")), []).append({
+            "url": str(r.get("url") or ""),
+            "price": r.get("cur_price"),
+            "title": str(r.get("title") or ""),
+        })
+    for v in out.values():
+        v.sort(key=lambda x: (x["price"] if pd.notna(x["price"]) else 1e18))
+    return out
+
+
+def _norm_model(v) -> str:
+    """機種名の突き合わせ用。メーカー名や区切りの揺れを落とす。"""
+    return re.sub(r"[\s\-_]", "", str(v or "")).upper()
 
 
 def _model_queries() -> dict[str, tuple[str, str]]:
@@ -230,6 +283,15 @@ def _domestic_from_souba() -> pd.DataFrame:
     """国内レーン。**1行=いま出とる現物1個**や。売切と kill は落とす。"""
     fam_q = _family_queries()
     grade = _grades_by_family()
+    # **売る側は「一覧に飛ばす」では決められん。** いくらで出すかを決めるのに
+    # 要るのは分布や。medians.csv が件数・p10・p25・中央を持っとる
+    mp = S.SOUBA / "data" / "flip" / "medians.csv"
+    md = S.read_csv(mp) if mp.exists() else pd.DataFrame()
+    if not md.empty:
+        _num(md, "n", "median", "p25")
+        dist = {str(r["family"]): (r["n"], r["p25"]) for _, r in md.iterrows()}
+    else:
+        dist = {}
     # 検品の見せ方は buylist.py の正本を借りる。**keep は「買ってええ」やない**——
     # 「本文に欠陥の自白が無い」だけで、LLM検品の生存判定は実測25%や
     from . import buylist as BL
@@ -259,6 +321,10 @@ def _domestic_from_souba() -> pd.DataFrame:
             "買い線": d.get("buy_line"),
             "玉": d.get("family", ""), "url": d.get("url", ""),
             "走査": d.get("scanned_at", ""),
+            "相場n": d.get("family", "").map(
+                lambda f: dist.get(str(f), (float("nan"), float("nan")))[0]),
+            "相場p25": d.get("family", "").map(
+                lambda f: dist.get(str(f), (float("nan"), float("nan")))[1]),
             "検品": d.get("verdict", "").fillna("").map(
                 lambda v: BL.VERDICT_LABEL.get(str(v), str(v))),
             "等級": d.get("family", "").map(
