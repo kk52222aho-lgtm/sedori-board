@@ -51,9 +51,9 @@ def _q(v) -> str:
 
 NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗利", "関税",
            "買い線", "入口中央", "買線内", "汚染率", "出口n", "入口n",
-           "出口生", "出口本体")
+           "出口生", "出口本体", "期待粗利180d")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
-           "買いに行く", "売りに行く", "走査",
+           "買いに行く", "売りに行く", "走査", "検品", "等級",
            "帯", "構成", "構成差", "出口状態", "型番弱")
 
 # ---- 旗の閾値。**画面のスライダーで動かせるが、既定はここが正本や** ----
@@ -204,9 +204,35 @@ def _family_queries() -> dict[str, str]:
     return out
 
 
+def _grades_by_family() -> dict[str, dict]:
+    """family -> 等級と期待粗利180日。**人手で実物を読んで通った実績**の側や。
+
+    レーンの粗利は「相場どうしの引き算」やが、こっちは「本文検品を通った件数 ×
+    その粗利の中央値」。**硬さが別物やから、同じ行に並べて温度差を見せる。**
+    """
+    p = S.DATA / "snapshot" / "master.csv"
+    if not p.exists():
+        return {}
+    d = S.read_csv(p)
+    if d.empty or "family" not in d:
+        return {}
+    out = {}
+    for _, r in d.iterrows():
+        out[str(r["family"])] = {
+            "等級": str(r.get("等級") or ""),
+            "期待粗利180d": pd.to_numeric(r.get("期待粗利180d"), errors="coerce"),
+            "判定": str(r.get("判定") or ""),
+        }
+    return out
+
+
 def _domestic_from_souba() -> pd.DataFrame:
     """国内レーン。**1行=いま出とる現物1個**や。売切と kill は落とす。"""
     fam_q = _family_queries()
+    grade = _grades_by_family()
+    # 検品の見せ方は buylist.py の正本を借りる。**keep は「買ってええ」やない**——
+    # 「本文に欠陥の自白が無い」だけで、LLM検品の生存判定は実測25%や
+    from . import buylist as BL
     rows = []
     for fname, market in FLIP_MARKET.items():
         p = S.SOUBA / "data" / "flip" / fname
@@ -233,6 +259,12 @@ def _domestic_from_souba() -> pd.DataFrame:
             "買い線": d.get("buy_line"),
             "玉": d.get("family", ""), "url": d.get("url", ""),
             "走査": d.get("scanned_at", ""),
+            "検品": d.get("verdict", "").fillna("").map(
+                lambda v: BL.VERDICT_LABEL.get(str(v), str(v))),
+            "等級": d.get("family", "").map(
+                lambda f: grade.get(str(f), {}).get("等級", "")),
+            "期待粗利180d": d.get("family", "").map(
+                lambda f: grade.get(str(f), {}).get("期待粗利180d")),
             "買いに行く": d.get("url", ""),
             "売りに行く": d.get("family", "").map(
                 lambda f: AUCFREE.format(q=_q(fam_q.get(f, ""))) if fam_q.get(f) else ""),

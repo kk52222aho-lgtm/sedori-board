@@ -104,11 +104,13 @@ c3.metric("期待粗利 / 180日", yen(go["期待粗利180d"].sum()),
 # 詳しい理屈と実例は core/audit_gate.py に書いた。
 st.warning(AG.AUDIT_NOTE, icon="🔍")
 
-tabs = st.tabs(["🛒 いま買える", "🎯 勝てる商品", "🌏 レーン比較", "🔔 アラート",
+# **レーン比較を先頭に置く。** 「どこで買ってどこで売るか」が最初に来んと、
+# 判断材料が8枚に散ったままになる(2026-08-24に言われた)。
+tabs = st.tabs(["🌏 レーン比較", "🛒 いま買える", "🎯 勝てる商品", "🔔 アラート",
                 "📒 台帳", "🌏 その他チャネル", "💀 墓場", "🏭 稼働"])
 
 # ------------------------------------------------------------------ いま買える
-with tabs[0]:
+with tabs[2]:
     bl = BL.load()
     if bl.empty:
         st.warning("買い目がまだ無い。ローカルで "
@@ -316,7 +318,7 @@ with tabs[1]:
                 })
 
 # ------------------------------------------------------------------ レーン比較
-with tabs[2]:
+with tabs[0]:
     lanes = LN.load()
     if lanes.empty:
         st.info("レーンの計測がまだ無い。ローカルで `python export_snapshot.py` を回して"
@@ -364,6 +366,13 @@ with tabs[2]:
 
         st.divider()
         st.subheader(f"✅ 旗の立っとらんレーン({len(ok)}本)")
+        st.caption("**1行で「どこで買って・その玉は大丈夫か・どこで売るか」まで出す。**"
+                   "🛒が仕入れ先、💴が出口の相場。")
+        st.caption("**検品は「本文に欠陥の自白が無い」だけ**で、買ってええという"
+                   "意味やない(LLM検品の生存判定は実測25%)。")
+        st.caption("等級と期待粗利180日は camera/gakki にしか付かん。**その玉は即売れる**"
+                   "ので(実測 camera 12/13・gakki 5/5 が SOLD)、工具ばかりの日は"
+                   "列ごと消える。")
         st.caption("**ここが「今の盤で信用できる買い方・売り方」**や。"
                    "輸出は年台数×粗利、国内は目の前の1個の粗利で並べとる。")
         st.caption("出口の内訳: **eBay US** は実売中央から手数料16%・国際送料・"
@@ -392,6 +401,15 @@ with tabs[2]:
             "純利": st.column_config.NumberColumn("1台の純利", format="¥%d"),
             "年間粗利": st.column_config.NumberColumn(format="¥%d"),
             "年台数": st.column_config.NumberColumn(format="%.1f 台"),
+            "検品": st.column_config.TextColumn(
+                "検品", help="**keep は「買ってええ」やない。** 本文に欠陥の自白が"
+                             "無いだけで、LLM検品の生存判定は実測25%"),
+            "等級": st.column_config.TextColumn(
+                "等級", help="🎯勝てる商品と同じ等級。A=実弾GO"),
+            "期待粗利180d": st.column_config.NumberColumn(
+                "期待粗利180日", format="¥%d",
+                help="**人手で実物を読んで通った実績**の積み上げ。"
+                     "左の純利(相場どうしの引き算)とは硬さが別物や"),
             "url": st.column_config.LinkColumn("玉", display_text="開く"),
             "買いに行く": st.column_config.LinkColumn("買いに行く", display_text="🛒"),
             "売りに行く": st.column_config.LinkColumn("売りに行く", display_text="💴"),
@@ -399,15 +417,20 @@ with tabs[2]:
         # **一番左に「どこで買ってどこで売るか」を置く。** これが見出しや
         # **買い線を出す。** ここが唯一の指示や。「仕入値」は過去の落札の
         # p25=事実の記録であって、いくら出してええかを言うてくれん。
-        SHOW = ["レーン", "品", "買い線", "仕入値", "買いに行く",
+        SHOW = ["レーン", "品", "検品", "等級", "買い線", "仕入値", "買いに行く",
                 "売値", "売りに行く", "引かれ", "純利",
-                "年台数", "年間粗利", "帯"]
+                "年台数", "年間粗利", "期待粗利180d", "帯"]
         for kind, sort_by in (("輸出(相場)", "年間粗利"), ("国内(現物)", "純利")):
             part = ok[ok["種別"] == kind]
             if part.empty:
                 continue
             st.markdown(f"**{kind}** — {len(part)}本")
-            cols = [c for c in SHOW if c in part.columns]
+            # **空の列は出さん。** 等級/期待粗利は camera/gakki にしか付かんが、
+            # その玉は即売れるので工具ばっかりの日は全部空になる。空欄を並べると
+            # 「等級なし=悪い」に見えるだけで情報にならん
+            cols = [c for c in SHOW if c in part.columns
+                    and not (part[c].isna().all()
+                             or (part[c].astype(str).str.strip() == "").all())]
             st.dataframe(part.sort_values(sort_by, ascending=False)[cols],
                          hide_index=True, width="stretch", height=300,
                          column_config=CFG)
