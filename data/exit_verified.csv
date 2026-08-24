@@ -7,3 +7,9 @@ SONY PVM-A250,clean,2026-08-24,claude,"出口86件・出口IQR0.40。高値側�
 PIONEER CDJ-2000NXS2,dirty,2026-08-24,claude,"**却下のまま**。出口240件・IQR0.77。高値側が Pair & DJM-900NXS2 Mixer $9,000 / Two Pairs (4 Units) $6,400 で2台+ミキサーのセット、安値側は LCD・タッチパネル・基板・ポテンショメータ。両端が汚れとる。KIT_RE が Pair / 2x / 4 Units を拾わんのが原因"
 ICOM IC-7851,dirty,2026-08-24,claude,"n=4。まともな実売は Japan Model ¥188,025/¥293,921 の2件で、¥1,389,750/¥1,614,562 の2件は同一出品者の「NEAR MINT !YOU EARNED IT YOU DESSERVE IT!」で5倍。トリムが安い方(CI-Vケーブル¥4,733)だけ落として高い2件を残し、中央値が¥841,835に飛んどる。実勢は¥24万前後"
 NIKON Z9,clean,2026-08-24,claude,"互換一覧フィルタ後、purityのトリムを通ると n=60 / p25 ¥539,550 / 中央 ¥604,485 で一山。Lブラケット等の残りかすは桁トリムで落ちとる"
+ICOM IC-9100,clean,2026-08-24,claude,"n=3。トリム前は6件中3件がマニュアル/クイックリファレンス(¥1,848-5,714)やったが桁トリムが全部落として、残る3件は実機(¥212,386/¥238,347/¥269,775)。中央¥238,347は正しい。ただしn=3で薄い"
+YOKOGAWA WT3000,clean,2026-08-24,claude,"n=9。¥163,500の(REPAIR or PARTS)は落ちとる。残りは全部実機で、760302/760303/760304のサフィックス違い=オプション構成の差。2倍の幅は実在の変異"
+MITUTOYO SJ-410,clean,2026-08-24,claude,"n=14。¥68,662のPrecision Vise(付属治具)は落ちとる。¥196,200の裸「Mitutoyo SJ-410」は残っとるが1件で中央値は動かん"
+OLYMPUS SZX16,dirty,2026-08-24,claude,"n=13に「SZX16 Stereo Microscope Body」¥294,300と「with EP50 Camera Transmitted Light Base」¥1,062,750が同居。本体のみと完成系で3.6倍=構成が混ざっとる。中央¥817,500はどっちの値段でもない"
+KORG KRONOS,dirty,2026-08-24,claude,n=173に初代Kronosと「Kronos 3」「KRONOS LS」が混在。世代がちがう別商品や。安い側のKey Return Springs等はトリムで落ちとるが、世代混在はトリムでは割れん
+ROLAND MDX-40A,dirty,2026-08-24,claude,"n=5。トリム後もp25¥81,750に対し中央¥253,425/最高¥801,150で3-10倍。CNCミル本体とスピンドルベルト等の部品の境が曖昧で、n=5では中央値を名乗れん"
