@@ -457,9 +457,14 @@ with tabs[0]:
         # 「今日その玉があるか」に答えられん(2026-08-24に言われた)。
         SHOW = ["レーン", "品", "検品", "等級", "いま買える", "いま最安", "買い線", "仕入値",
                 "買いに行く", "相場n", "相場p25", "p25$", "売値", "売値$", "売りに行く",
-                "引かれ", "純利", "フリマなら", "売れる間隔", "実測滞留",
+                "引かれ", "純利", "フリマなら", "棚年数", "年利/台",
+                "売れる間隔", "実測滞留",
                 "年台数", "年間粗利", "期待粗利180d", "帯"]
-        for kind, sort_by in (("輸出(相場)", "年間粗利"), ("国内(現物)", "純利")):
+        # **並べる軸を年利/台にした**(2026-08-24)。年間粗利は出口の流量だけを
+        # 見とって**競合の在庫を見てへん**。棚に67本並んどる面と2本の面を
+        # 同じ列に並べたらあかん。年利が無い行は純利で並べる——
+        # **無い列で並べたら黙って最下位に落ちる**からや
+        for kind, sort_by in (("輸出(相場)", "年利/台"), ("国内(現物)", "純利")):
             part = ok[ok["種別"] == kind]
             if part.empty:
                 continue
@@ -470,7 +475,12 @@ with tabs[0]:
             cols = [c for c in SHOW if c in part.columns
                     and not (part[c].isna().all()
                              or (part[c].astype(str).str.strip() == "").all())]
-            st.dataframe(part.sort_values(sort_by, ascending=False)[cols],
+            if sort_by in part and part[sort_by].notna().any():
+                part = part.sort_values(sort_by, ascending=False,
+                                        na_position="last")
+            else:
+                part = part.sort_values("純利", ascending=False)
+            st.dataframe(part[cols],
                          hide_index=True, width="stretch", height=300,
                          column_config=CFG)
 
