@@ -13,3 +13,8 @@ MITUTOYO SJ-410,clean,2026-08-24,claude,"n=14。¥68,662のPrecision Vise(付属
 OLYMPUS SZX16,dirty,2026-08-24,claude,"n=13に「SZX16 Stereo Microscope Body」¥294,300と「with EP50 Camera Transmitted Light Base」¥1,062,750が同居。本体のみと完成系で3.6倍=構成が混ざっとる。中央¥817,500はどっちの値段でもない"
 KORG KRONOS,dirty,2026-08-24,claude,n=173に初代Kronosと「Kronos 3」「KRONOS LS」が混在。世代がちがう別商品や。安い側のKey Return Springs等はトリムで落ちとるが、世代混在はトリムでは割れん
 ROLAND MDX-40A,dirty,2026-08-24,claude,"n=5。トリム後もp25¥81,750に対し中央¥253,425/最高¥801,150で3-10倍。CNCミル本体とスピンドルベルト等の部品の境が曖昧で、n=5では中央値を名乗れん"
+RION VM-83,dirty,2026-08-24,claude,"n=7。ピックアップPV-85付き¥68,670-85,020より、裸の「1pcs VM-83」¥274,680-302,475が4倍高い。付属が付いとる方が安いのは逆で、母集団が2種類。IQR3.23"
+HIOKI IM3536,dirty,2026-08-24,claude,"中古¥327,000-482,325と新品(NEW/New From)¥746,222-803,109の混在。構成やのうて条件のちがい。条件を構成キーに入れて粗利¥297,845→¥195,259"
+ACCUPHASE E-800,dirty,2026-08-24,claude,"¥1.5M級のアンプに「New Genuine E-800S AC230V」¥56,734/¥77,301/¥80,932の3件。実勢の1/20で詐欺出品か別物。加えて最高値¥2,697,750は「E-800 & A-48 Set」でアンプ2台"
+YOKOGAWA WT1800,dirty,2026-08-24,claude,WT1803(3素子)とWT1806(6素子)が同じ母集団に。枝番やのうて別型番で、素子数は値段を2-3倍変える。must_reがWT1800なのでraw_variantでは割れん
+OLYMPUS BX51,dirty,2026-08-24,claude,"Cover¥3,270 / Gear¥4,905 / Voltage Indicator¥4,905が本体判定を通っとる。上は完成系¥2,444,325でIQR5.22。部品と完成系が同居"
