@@ -53,13 +53,20 @@ NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗
            "買い線", "入口中央", "買線内", "汚染率", "出口n", "入口n",
            "出口生", "出口本体")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
-           "買いに行く", "売りに行く",
+           "買いに行く", "売りに行く", "走査",
            "帯", "構成", "構成差", "出口状態", "型番弱")
 
 # ---- 旗の閾値。**画面のスライダーで動かせるが、既定はここが正本や** ----
 # Reverb(楽器・音響の海外出口)。**式は souba-league の reverb_probe.py から借りる。**
 #   FEE_XB = 0.1325(越境の手数料)/ ship = 2000 + kg*3000(国際送料のざっくり)
 # こっちで作り直したら、向こうの判定と盤の数字がズレる。
+# 🚨 **国内(現物)は生モノや。** 実測で候補の73%が27時間で売れる
+# (2026-08-17)。走査からこの時間を過ぎた行は「いま買える」と言うたらあかん。
+# 2026-08-24、盤の国内37本のうち14本(38%)が8〜9日前の走査やった——
+# メルカリとラクマの走査器はブラウザが要るので定期実行に載っとらん。
+# **status は走査した時にしか更新されんので、古い行は SOLD にならず生き残る。**
+STALE_HOURS = 48
+
 REVERB_FEE = 0.1325
 JPY = 163.5              # purity.py と同じレート
 MIN_NET = 30000          # purity.py と同じ
@@ -225,6 +232,7 @@ def _domestic_from_souba() -> pd.DataFrame:
             "純利": d["net"], "年台数": float("nan"),
             "買い線": d.get("buy_line"),
             "玉": d.get("family", ""), "url": d.get("url", ""),
+            "走査": d.get("scanned_at", ""),
             "買いに行く": d.get("url", ""),
             "売りに行く": d.get("family", "").map(
                 lambda f: AUCFREE.format(q=_q(fam_q.get(f, ""))) if fam_q.get(f) else ""),
@@ -433,6 +441,16 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         ln = line.get(i)
         if pd.notna(ln) and pd.notna(b) and b > 0 and ln < b:
             w.append(f"買い線が落札p25を{(b - ln) / b * 100:.0f}%下回る=まず買えん")
+        # 国内(現物)の鮮度。**走査した瞬間しか status は更新されん**ので、
+        # 古い行は SOLD にならずに「まだ買える」顔で残る
+        sc = d["走査"].get(i) if "走査" in d else None
+        if isinstance(sc, str) and sc.strip():
+            try:
+                age = (pd.Timestamp.now() - pd.Timestamp(sc)).total_seconds() / 3600
+                if age > STALE_HOURS:
+                    w.append(f"走査から{age / 24:.0f}日=玉は消えとる公算")
+            except (ValueError, TypeError):
+                pass
         comp = d["構成"].get(i) if "構成" in d else None
         if isinstance(comp, str) and "セット" in comp:
             w.append("構成にセット混在")
