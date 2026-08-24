@@ -18,3 +18,8 @@ HIOKI IM3536,dirty,2026-08-24,claude,"中古¥327,000-482,325と新品(NEW/New F
 ACCUPHASE E-800,dirty,2026-08-24,claude,"¥1.5M級のアンプに「New Genuine E-800S AC230V」¥56,734/¥77,301/¥80,932の3件。実勢の1/20で詐欺出品か別物。加えて最高値¥2,697,750は「E-800 & A-48 Set」でアンプ2台"
 YOKOGAWA WT1800,dirty,2026-08-24,claude,WT1803(3素子)とWT1806(6素子)が同じ母集団に。枝番やのうて別型番で、素子数は値段を2-3倍変える。must_reがWT1800なのでraw_variantでは割れん
 OLYMPUS BX51,dirty,2026-08-24,claude,"Cover¥3,270 / Gear¥4,905 / Voltage Indicator¥4,905が本体判定を通っとる。上は完成系¥2,444,325でIQR5.22。部品と完成系が同居"
+ACCUPHASE E-650,clean,2026-08-24,claude,"n=4で¥996,353-1,142,865。全部実機のプリメインアンプでばらつき15%。IQR1.09。1件はDAC60オプション搭載やが価格差は誤差の範囲"
+ESOTERIC K-01,clean,2026-08-24,claude,"¥32,700の「PCB CORE CDT Main Control Board」は基板やが桁トリムで落ちる。残る4件は全部SACD/CDプレーヤー実機¥809,325-1,177,200。120V/100Vの電圧違いはあるが価格差なし"
+HIOKI PW3335,dirty,2026-08-24,claude,"n=4が全部別物。「Powers On, Untested Further」¥114,450と「Power-On Tested Only As-Is」¥155,325は未検査、¥228,900が通常品、¥329,766は「PW3335-01 LAN GP-IB NEW」でオプション付き新品。4点で中央値を名乗れん"
+KIKUSUI PLZ1004W,clean,2026-08-24,claude,"n=4で¥228,900-457,800。全部同スペック(150V/200A/1000W)の電子負荷。2倍差は状態と出品者のちがいで、母集団は一種類"
+FUJINON MK18-55,dirty,2026-08-24,claude,"「Cine Lens Kit for Sony E mount」¥130,800と「(MFT)」¥145,515でマウント違いが混在。シネレンズはマウントで別商品や。must_reはMK18-55なのでマウントは枝番でも割れん"
