@@ -624,6 +624,12 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         b, s_ = buy.get(i), sell.get(i)
         if pd.notna(b) and pd.notna(s_) and s_ > 0 and b / s_ < r:
             w.append(f"入口が売値の{b / s_ * 100:.1f}%=左右ズレ疑い")
+        # **人が「汚い」と読んだんなら、それは旗や。**
+        # clean は旗を外すのに dirty は何もしとらんかった(2026-08-24)。
+        # 人手の判定が片側にしか効かんのは、読んだ労力の半分を捨てとる。
+        vr0 = ver.get(str(d["品"].get(i) if "品" in d else ""), {})
+        if vr0.get("判定") == "dirty":
+            w.append(f"人が読んで汚い[{str(vr0.get('確認日') or '')}]")
         v = dirty_s.get(i)
         if pd.notna(v) and v >= dt:
             # 人が出口を読んで clean と判定しとったら、汚染の旗は外す
