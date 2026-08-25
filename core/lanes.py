@@ -21,6 +21,14 @@ sedori-board は計算せん。ここも同じで、souba-league が既に出し
 買取店に売る話やない——**自分が売り手に回る**。査定人が自分になるぶんの状態リスクは
 こっち持ちで、その保守側の倒しが IQRマージンや。
 
+🚨 **その落札中央値は「その玉と同じ状態」のものだけで作る**(2026-08-25)。
+前は新品の落札が混ざっとって、**中古を仕入れて新品の値段で売る**計算になっとった
+(落札17,963行の13.0%が新品。新品と中古が両方2件以上ある159型番の**145=91%で
+新品が高い**)。当てた効果はフリマ候補92件で **純利合計 ¥886,359 → ¥649,599**、
+MAX HN-65N4 の玉は **+¥9,118 → −¥8,706 と符号が反転**した。
+`状態` がその玉の判定、`出口基準` がどっちの中央値を当てたか。**2列とも空の行は
+混ぜたままの古い走査**やから、旗が立って監査キューへ落ちる。
+
 同じ表に混ぜると、机上の中央値と目の前の1個が同じ重さに見えてまう。**列で分ける。**
 """
 from __future__ import annotations
@@ -59,6 +67,9 @@ NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く", "走査", "検品", "等級",
            "帯", "構成", "構成差", "出口状態", "型番弱",
+           # **「その玉の状態」と「どっちの中央値で売値を出したか」。**
+           # 輸出は `構成`(枝番/セット/状態)が既に持っとる。国内は別列や
+           "状態", "出口基準",
            # 🚨 **NUMERIC に入れとって `pd.to_numeric("ジャンク|…")` が NaN に
            # なり、旗が黙って消えとった**(2026-08-24)。同じ日に「欠損が有利側の
            # 値に化ける」を3件潰した直後に、俺が4件目を作っとった。
@@ -104,6 +115,19 @@ ENTRY_P25_RATIO = 0.6  # 入口p25が入口中央のこれ未満 = 安値側に�
 THIN_N = 10            # 出口/入口の標本がこれ未満 = 中央値が数件で動く
                        # (5やと PXW-Z190 の出口n=6 が通ってまう。
                        #  1台¥12万の判断が6件の中央値に乗るのは薄い)
+
+
+def _col(d: pd.DataFrame, name: str) -> pd.Series:
+    """欠けとる列を**全部空文字の Series** として返す。
+
+    🚨 `d.get(name, "")` は列が無いと**文字列そのもの**を返すので、後ろの
+    `.map()` や `.fillna()` が `'str' object has no attribute` で落ちる
+    (2026-08-25、走査し直した直後の候補CSVに `verdict` がまだ無くて踏んだ)。
+    **欠損は空欄として素通しさせる**——盤が落ちるのが一番あかん。
+    """
+    if name in d:
+        return d[name].fillna("").astype(str)
+    return pd.Series("", index=d.index, dtype=object)
 
 
 def _num(df: pd.DataFrame, *cols: str) -> None:
@@ -442,7 +466,7 @@ def _domestic_from_souba() -> pd.DataFrame:
         if d.empty:
             continue
         rows.append(pd.DataFrame({
-            "品": d.get("title", "").astype(str).str.slice(0, 46),
+            "品": _col(d, "title").str.slice(0, 46),
             "レーン": f"{market} → ヤフオク", "種別": "国内(現物)",
             "仕入面": market, "仕入値": d["price"],
             "売面": "ヤフオク(再出品)", "売値": d["median"],
@@ -453,25 +477,31 @@ def _domestic_from_souba() -> pd.DataFrame:
             "フリマなら": d["median"] * (JP_EXIT_FEE[JP_EXIT_BASE]
                                     - JP_EXIT_FEE["Yahoo!フリマ"]),
             "買い線": d.get("buy_line"),
-            "玉": d.get("family", ""), "url": d.get("url", ""),
-            "走査": d.get("scanned_at", ""),
+            "玉": _col(d, "family"), "url": _col(d, "url"),
+            "走査": _col(d, "scanned_at"),
             # medians.csv の n は**過去180日**の落札数(backtest_flip.py)。
             # 年換算は n×2、平均間隔は 182.5/n 日
-            "売れる間隔": d.get("family", "").map(
+            "売れる間隔": _col(d, "family").map(
                 lambda f: (182.5 / dist[str(f)][0])
                 if dist.get(str(f)) and dist[str(f)][0] else float("nan")),
-            "相場n": d.get("family", "").map(
+            "相場n": _col(d, "family").map(
                 lambda f: dist.get(str(f), (float("nan"), float("nan")))[0]),
-            "相場p25": d.get("family", "").map(
+            "相場p25": _col(d, "family").map(
                 lambda f: dist.get(str(f), (float("nan"), float("nan")))[1]),
-            "検品": d.get("verdict", "").fillna("").map(
+            "検品": _col(d, "verdict").map(
                 lambda v: BL.VERDICT_LABEL.get(str(v), str(v))),
-            "等級": d.get("family", "").map(
+            # 🚨 **中古を仕入れて新品の中央値で売る計算になっとった**(2026-08-25)。
+            # 走査器が玉ごとに状態を判定して、**同じ状態の落札中央値だけ**で
+            # 売値を出すようにした。ここはその結果を持ち回るだけや。
+            # 走査が古い行はこの2列が空で、下の旗が拾う
+            "状態": _col(d, "状態"),
+            "出口基準": _col(d, "出口基準"),
+            "等級": _col(d, "family").map(
                 lambda f: grade.get(str(f), {}).get("等級", "")),
-            "期待粗利180d": d.get("family", "").map(
+            "期待粗利180d": _col(d, "family").map(
                 lambda f: grade.get(str(f), {}).get("期待粗利180d")),
-            "買いに行く": d.get("url", ""),
-            "売りに行く": d.get("family", "").map(
+            "買いに行く": _col(d, "url"),
+            "売りに行く": _col(d, "family").map(
                 lambda f: AUCFREE.format(q=_q(fam_q.get(f, ""))) if fam_q.get(f) else ""),
             "根拠": fname,
         }))
@@ -731,6 +761,18 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         comp = d["構成"].get(i) if "構成" in d else None
         if isinstance(comp, str) and "セット" in comp:
             w.append("構成にセット混在")
+        # 🚨 **中古を仕入れて新品の値段で売る計算になっとった**(2026-08-25)。
+        # ヤフオク落札17,963行のうち13.0%が新品で、新品と中古が両方2件以上ある
+        # 159型番の**145(91%)で新品のほうが高い**。混合の中央値を中古の玉に
+        # 当てると出口が中央+1.8%・最悪+39.3%(p_home_k06a ¥25,785→¥42,501)
+        # 盛られる。**空欄は「混ぜたまま」や**——走査し直すまで信用したらあかん。
+        st_ = str(d["状態"].get(i) or "") if "状態" in d else ""
+        bs = str(d["出口基準"].get(i) or "") if "出口基準" in d else ""
+        if str(d["種別"].get(i) if "種別" in d else "").startswith("国内"):
+            if not bs:
+                w.append("出口が新品と中古の混合=走査し直すまで信用でけへん")
+            elif st_ and st_ != bs:
+                w.append(f"{st_}の玉を{bs}の中央値で評価しとる")
         # purity が既に出しとる2つ。**盤が見てへんかった**(2026-08-22)。
         # DAIWA EXIST が「旗なし首位・年間粗利508万」に居座っとった原因や。
         # 入口p25 ¥9,000 に対し中央 ¥28,273 = 替えスプールや部品が混ざっとる。
@@ -745,9 +787,21 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         # 「検品が空欄」は「欠陥が無い」やのうて「本文を読んでへん」や
         insp = d["検品"].get(i) if "検品" in d else None
         buyable = d["いま買える"].get(i) if "いま買える" in d else None
-        if (isinstance(insp, str) and not insp.strip()
-                and pd.notna(pd.to_numeric(buyable, errors="coerce"))
+        # **「空欄」には2つの顔がある。** 輸出行は文字どおり空文字やが、
+        # 国内行は `VERDICT_LABEL[""]` を通って「⚪ 未検品」いう**文字**になる。
+        # 空白だけ見とったら国内側の未検品が旗をすり抜けた(2026-08-25)
+        from . import buylist as _BL
+        blank = isinstance(insp, str) and (not insp.strip()
+                                           or insp.strip() == _BL.VERDICT_LABEL[""])
+        if (blank and pd.notna(pd.to_numeric(buyable, errors="coerce"))
                 and float(pd.to_numeric(buyable, errors="coerce")) > 0):
+            w.append("検品してへん")
+        # 🚨 **国内(現物)は1行=目の前の1個や。無条件で検査対象になる。**
+        # 前は候補CSVの `verdict == "keep"` で先に絞れとったので旗が要らんかった。
+        # 走査し直した直後は**その列がまだ存在せん**ので絞りが素通りして、
+        # 未検品の玉が「旗なし」に並んだ(2026-08-25に踏んだ)。
+        # 絞りが効いとるかどうかに旗を依存させたらあかん——**空欄は空欄で数える**
+        elif blank and str(d["種別"].get(i) if "種別" in d else "").startswith("国内"):
             w.append("検品してへん")
         # **マスクに救われた玉は監査キューへ。** 生存が「欠陥語が無い」やのうて
         # 「消した」やった玉や。コーパス78本では19%(15本)がこれに当たる

@@ -74,7 +74,10 @@ def build_buylist() -> pd.DataFrame:
             got = m.get(df.at[i, "url"])
             if got:
                 df.at[i, "verdict"], df.at[i, "hit"], df.at[i, "status"] = got
+    # `状態`/`出口基準` は**売値がどっちの中央値で出とるか**や。落とすと
+    # 「新品と中古を混ぜた中央値で中古を評価しとった」事故が盤から見えんくなる
     keep = ["市場", "family", "title", "price", "median", "net", "condition",
+            "状態", "出口基準",
             "verdict", "hit", "status", "url", "scanned_at"]
     return df[[c for c in keep if c in df]]
 

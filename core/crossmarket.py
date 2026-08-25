@@ -50,7 +50,7 @@ def rank(df: pd.DataFrame) -> pd.DataFrame:
     """型番ごとに全面をまとめ、最安に印を付ける。
 
     返す列を足す:
-      同型番の最安  その型番で全面いちばん安い値
+      同型番の最安  その型番・**同じ状態**で全面いちばん安い値
       最安か        ○ ならこの玉が全面最安
       他面との差    最安との差額(0なら自分が最安)
     """
@@ -58,17 +58,29 @@ def rank(df: pd.DataFrame) -> pd.DataFrame:
         return df
     d = df.copy()
     d["price"] = pd.to_numeric(d["price"], errors="coerce")
-    lo = d.groupby("family")["price"].transform("min")
+    # 🚨 **新品と中古を同じ棚に並べたらあかん**(2026-08-25)。
+    # 「同型番の最安」は買い手が実際に見比べる集合や。中古¥22,000 と
+    # 新品¥39,800 を並べて「中古が最安」と言うても、新品を探しとる買い手は
+    # 動かん。出口の中央値を状態で割ったのと同じ軸をここにも当てる。
+    # 状態が空の行(混ぜとった頃の古い走査)は、それ自体が1つの群になる
+    key = ["family", "状態"] if "状態" in d else ["family"]
+    if "状態" in d:
+        # 🚨 **groupby は NaN の群を黙って落とす。** 状態がまだ付いとらん行
+        # (走査し直しとらん面)が最安の計算から丸ごと消えて、「同型番の最安」が
+        # NaN になる。空文字に潰して**1つの群として扱う**——欠損を消すんやのうて
+        # 「状態が分からん群」として残す(2026-08-25)
+        d["状態"] = d["状態"].fillna("").astype(str)
+    lo = d.groupby(key)["price"].transform("min")
     d["同型番の最安"] = lo
     # **同じ値段の玉が複数あったら全部「最安」になってまう。**
     # 型番ごとに1つだけ残す(同値なら速く売れる面を優先)
     d["_mk0"] = d.get("市場", "").map(lambda m: MARKET_RANK.get(m, 9))
-    d = d.sort_values(["family", "price", "_mk0"])
-    first = ~d.duplicated("family", keep="first")
+    d = d.sort_values(key + ["price", "_mk0"])
+    first = ~d.duplicated(key, keep="first")
     d["最安か"] = first.map({True: "○", False: ""})
     d["他面との差"] = (d["price"] - lo).astype("Int64")
     # 面の数を数える。**2面以上に出とる型番は、そもそも競争が厚い**
-    d["出とる面数"] = d.groupby("family")["市場"].transform("nunique") \
+    d["出とる面数"] = d.groupby(key)["市場"].transform("nunique") \
         if "市場" in d else 1
     d["_mk"] = d.get("市場", "").map(lambda m: MARKET_RANK.get(m, 9))
     return d.sort_values(["最安か", "net", "_mk"],
