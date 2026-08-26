@@ -162,7 +162,14 @@ with tabs[2]:
         view = CM.rank(view)
         if only_lo:
             view = CM.only_cheapest(view)
-        show = view.rename(columns=BL.COLS)
+        show, skipped = BL.display(view)
+        if skipped:
+            # **落ちるかわりに名指しする。** 貼れんかった=列名の意味が
+            # 食い違っとる合図で、黙って直したら次も同じ所で踏む
+            st.warning(f"列名が食い違っとる: {', '.join(skipped)} は"
+                       "貼り先が埋まっとったので元の名前のまま出しとる。"
+                       "**アプリを再起動したら直る**(古いモジュールが"
+                       "プロセスに残っとる)。", icon="🧩")
         cols = [c for c in ["純利", "いま", "相場", "市場", "最安か",
                             "他面との差", "出とる面数", "型番", "商品",
                             "状態", "出口基準", "申告",

@@ -62,6 +62,34 @@ VERDICT_LABEL = {
 }
 
 
+def display(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """表示用に列名を貼り替える。**貼り先が既にある列は貼らん。**
+
+    🚨 `rename` は貼り先の重複を黙って作る。2026-08-25、`condition` の表示名を
+    「状態」から「申告」に変えた日に、streamlit.app が
+    `Duplicate column names found` で落ちた。原因は**新しいCSVと古いモジュール**
+    の食い合わせや:
+
+        新しい buylist.csv  … `condition` と `状態` の**両方**を持つ
+        古い COLS(プロセスに残っとった) … `condition` → 「状態」
+
+    → 「状態」が2本できて、`show[cols]` が2列返して pyarrow が落ちる。
+    Streamlit Cloud は push で app.py を読み直しても、`sys.modules` に残った
+    `core.buylist` は**古いまま**のことがある(再起動で直る)。
+
+    **貼り先が埋まっとったら貼らん**のが正しい向きや——実データの `状態` を
+    残して、行き場の無い旧列は元の名前のまま脇に置く。落とすんやのうて残す:
+    列が消えたら「測っとらん」と見分けが付かんようになる。
+
+    返すのは (貼り替えた表, 貼れんかった元の列名) や。
+    """
+    have = set(df.columns)
+    skipped = [src for src, dst in COLS.items()
+               if src in have and dst in have and src != dst]
+    mapping = {k: v for k, v in COLS.items() if k not in skipped}
+    return df.rename(columns=mapping), skipped
+
+
 def load() -> pd.DataFrame:
     """買い目。無ければ空を返す。"""
     df = S.snap("buylist")
