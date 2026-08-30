@@ -10,6 +10,9 @@
 """
 from __future__ import annotations
 
+import importlib
+import os
+import sys
 import time
 
 import pandas as pd
@@ -18,13 +21,84 @@ import streamlit as st
 from core import alerts as A
 from core import audit_gate as AG
 from core import buylist as BL
+from core import capital as CP
 from core import crossmarket as CM
 from core import inspect_live as IL
 from core import lanes as LN
 from core import sources as S
 from core import watchlist as W
 
+
+# 🚨 **Streamlit は app.py だけを毎回ディスクから読み直す。`core/` の中身は
+# `sys.modules` に残ったままや。**
+#
+# streamlit.app で2回続けて踏んだ(2026-08-25/26):
+#
+#     Duplicate column names found   ← 新しい app.py × 古い COLS
+#     AttributeError: BL.display     ← 新しい app.py × display() の無い buylist
+#
+# どっちもリポジトリは正しくて、**動いとるプロセスだけが古かった**。
+# push で app.py は入れ替わるが、既に import 済みのモジュールは入れ替わらん
+# ——「再起動してくれ」で済ませとったら同じ所で2回止めた。
+#
+# **人に手順を覚えさせる代わりに、盤が自分で貼り直す。** 読み込んだときの
+# mtime を覚えといて、ファイルのほうが新しかったら reload する。
+# `importlib.reload` はモジュールを**その場で書き換える**ので、上の
+# `from core import ... as XX` の別名はそのまま新しい中身を指す。
+#
+# 並べ替えの順番は依存の浅い順や。`sources` を先に貼り直さんと、
+# 後続がまだ古い定数を掴んだまま再実行される。
+_CORE_ORDER = ("core.sources", "core.audit_gate", "core.buylist",
+               "core.crossmarket", "core.capital", "core.lanes",
+               "core.watchlist", "core.alerts", "core.inspect_live")
+
+
+def _refresh_core() -> list[str]:
+    """`core/` のモジュールを、ディスクのほうが新しかったら貼り直す。
+
+    🚨 **初回は無条件で貼り直す。** 「初めて見た mtime を基準に刻むだけ」に
+    しとったら、**いま既に古いプロセスは永久に直らん**——古いモジュールの
+    mtime を刻んで「変わっとらん」と判定するからや。プロセスが古いまま
+    app.py だけ新しい、いうのがまさに今の状態やのに、それを検出できん。
+    プロセスが健全なら初回の reload はただの空振りで、値段は数ミリ秒や。
+    """
+    anchor = sys.modules.get("core.sources")
+    boot = anchor is not None and not getattr(anchor, "_boot_refreshed", False)
+    names = [n for n in _CORE_ORDER if n in sys.modules]
+    names += [n for n in sys.modules if n.startswith("core.") and n not in names]
+    done = []
+    for name in names:
+        mod = sys.modules.get(name)
+        f = getattr(mod, "__file__", None)
+        if not f or not os.path.exists(f):
+            continue
+        try:
+            mtime = os.path.getmtime(f)
+        except OSError:
+            continue
+        seen = getattr(mod, "_loaded_mtime", None)
+        if not (boot or seen is None or seen != mtime):
+            continue
+        try:
+            importlib.reload(mod)
+        except Exception as exc:               # noqa: BLE001
+            # **黙って古いまま進んだら、元の事故に戻る。** 名指しして出す
+            done.append(f"{name}(貼り直せんかった: {type(exc).__name__})")
+            continue
+        sys.modules[name]._loaded_mtime = mtime
+        if not boot:
+            done.append(name)                  # 起動時の空振りは報告せん
+    if anchor is not None:
+        sys.modules["core.sources"]._boot_refreshed = True
+    return done
+
+
+_RELOADED = _refresh_core()
+
 st.set_page_config(page_title="せどり盤", page_icon="🏷️", layout="wide")
+
+if _RELOADED:
+    st.toast("新しいコードに貼り直した: " + ", ".join(_RELOADED), icon="🔁")
 
 # Secrets に PASSWORD がある環境(Streamlit Cloud)でだけ合言葉ゲートを出す。
 # ローカルは secrets 未設定なのでそのまま開く(edge-ledger と同じ作り)。
@@ -106,11 +180,15 @@ st.warning(AG.AUDIT_NOTE, icon="🔍")
 
 # **レーン比較を先頭に置く。** 「どこで買ってどこで売るか」が最初に来んと、
 # 判断材料が8枚に散ったままになる(2026-08-24に言われた)。
-tabs = st.tabs(["🌏 レーン比較", "🛒 いま買える", "🎯 勝てる商品", "🔔 アラート",
-                "📒 台帳", "🌏 その他チャネル", "💀 墓場", "🏭 稼働"])
+# 🚨 **タブは番号やのうて名前で引く。** 並びの途中に1枚差し込むと、後ろの
+# `with` が全部1つずつズレて**中身が別の見出しに入る**。静かに壊れて、しかも
+# エラーにならん形や(2026-08-26に軍資金タブを足すときに気付いた)
+TAB_NAMES = ["🌏 レーン比較", "💰 軍資金", "🛒 いま買える", "🎯 勝てる商品",
+             "🔔 アラート", "📒 台帳", "🌏 その他チャネル", "💀 墓場", "🏭 稼働"]
+T = dict(zip(TAB_NAMES, st.tabs(TAB_NAMES)))
 
 # ------------------------------------------------------------------ いま買える
-with tabs[2]:
+with T["🎯 勝てる商品"]:
     bl = BL.load()
     if bl.empty:
         st.warning("買い目がまだ無い。ローカルで "
@@ -196,7 +274,7 @@ with tabs[2]:
             st.caption(f"走査時刻: {view['scanned_at'].max()}")
 
 # ------------------------------------------------------------------ 勝てる商品
-with tabs[1]:
+with T["🛒 いま買える"]:
     left, right = st.columns([3, 1])
     with right:
         grades = st.multiselect(
@@ -343,8 +421,175 @@ with tabs[1]:
                     "gross_hc": st.column_config.NumberColumn("粗利(保守)", format="¥%d"),
                 })
 
+# ------------------------------------------------------------------ 軍資金
+with T["💰 軍資金"]:
+    lanes_c = LN.flags(LN.load())
+    ok_c = LN.profitable(LN.clean(lanes_c))
+    real_yen, real_n = CP.realized(S.read_csv(S.DATA / "holdings.csv"))
+
+    st.subheader("💰 いくら持っとったら、なにを買うか")
+    st.error(
+        f"🚨 **ここの数字は全部まだ机上や。実弾の確定純利は {yen(real_yen)}"
+        f"({real_n}本)。** "
+        "本文検品を通る割合は **14.9%**(検品n≥4の26型番・248件の実測)で、"
+        "それも**買う前の話**でしかない。紙上で勝った6件を検品にかけたら "
+        "**kill 6 / keep 0** やった——安く落ちるのは壊れとるからで、"
+        "教科書どおりの**逆選択**や。"
+        "**下の「机上の年利」を予算にしたらあかん。**", icon="🚨")
+
+    # ── 4つの段を横に並べる。**主役は「使えん金」**や ──
+    st.markdown("#### 段ごとの姿")
+    st.caption("**金を増やしても比例して増えん。** 頭を打つのは資金やのうて"
+               "**玉の供給**(買い線の内側へ年に何本落ちてくるか)や。")
+    tier_rows = []
+    plans = {}
+    for b in CP.TIERS:
+        pl = CP.plan(ok_c, b)
+        sm = CP.summary(pl, b)
+        plans[b] = (pl, sm)
+        tier_rows.append({
+            "軍資金": b, "本数": sm["本数"], "型番数": sm["型番数"],
+            "今日出す金": sm["今日出す金"], "買い線に張る金": sm["予約の金"],
+            "遊ぶ金": sm["遊ぶ金"], "初弾まで": sm["初弾まで日"],
+            "上限で買った年利": sm["上限で買った年利"],
+            "机上の年利": sm["机上の年利"], "検品後の見込み": sm["検品後"],
+            "机上の年利回り": sm["年利回り"] * 100,
+        })
+    st.dataframe(
+        pd.DataFrame(tier_rows), hide_index=True, width="stretch",
+        column_config={
+            "軍資金": st.column_config.NumberColumn(format="¥%d"),
+            "本数": st.column_config.NumberColumn(format="%d 本"),
+            "型番数": st.column_config.NumberColumn(format="%d 型番"),
+            "今日出す金": st.column_config.NumberColumn(
+                format="¥%d",
+                help="**いま実在する玉**(国内の現物 + 輸出でいま買える玉)の合計。"
+                     "リンクを開いたらそこにある"),
+            "買い線に張る金": st.column_config.NumberColumn(
+                format="¥%d",
+                help="**まだ1円も働いとらん金。** 買い線を張って玉が落ちて"
+                     "くるのを待つぶんや。押さえとかなあかんが、出番は先"),
+            "遊ぶ金": st.column_config.NumberColumn(
+                format="¥%d", help="**行き先が無い金。** ここが太いなら、"
+                                   "足らんのは資金やのうて玉や"),
+            "初弾まで": st.column_config.NumberColumn(
+                format="%.0f 日",
+                help="一番待ちの短い予約に玉が落ちるまで(365÷買線内)。"
+                     "0日 = 今日その場で買える玉がある"),
+            "上限で買った年利": st.column_config.NumberColumn(
+                format="¥%d",
+                help="**下側の端。** 買い線ちょうどで買った場合や。輸出は買い線が"
+                     "「出口 − 目標利益¥30,000」で引いてあるので、**どの型番でも"
+                     "1台¥30,000**になる。実際はここと机上の間に落ちる"),
+            "机上の年利": st.column_config.NumberColumn(
+                format="¥%d", help="**予算にしたらあかん数字。** 入口p25(過去に"
+                                   "実際に落ちた安いほう4分の1)で買えた場合で、"
+                                   "検品も送料実費も通しとらん"),
+            "検品後の見込み": st.column_config.NumberColumn(
+                format="¥%d", help="机上 × 14.9%(本文検品を通る割合の実測)。"
+                                   "**これでもまだ楽観**や"),
+            "机上の年利回り": st.column_config.NumberColumn(format="%.0f%%"),
+        })
+
+    st.divider()
+    pick = st.radio("どの段を見るか", CP.TIERS, horizontal=True,
+                    format_func=lambda b: f"¥{b:,}")
+    pl, sm = plans[pick]
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("今日出す金", yen(sm["今日出す金"]),
+              help="いま実在する玉の合計。ここだけが今日動かせる金や")
+    m2.metric("買い線に張る金", yen(sm["予約の金"]),
+              help="玉が落ちてくるまで働かん金")
+    m3.metric("遊ぶ金", yen(sm["遊ぶ金"]),
+              help="行き先が無い金。太いなら足らんのは玉のほう")
+    m4.metric("検品後の見込み(年)", yen(sm["検品後"]),
+              help=f"机上 {yen(sm['机上の年利'])} × 14.9%")
+    st.caption(
+        f"年利の幅: **上限(買い線ちょうど)で買ったら {yen(sm['上限で買った年利'])} "
+        f"／ 入口p25で買えたら {yen(sm['机上の年利'])}**。"
+        "輸出の買い線は「出口 − 目標利益¥30,000」で引いてあるから、"
+        "**買い線ちょうどで買うと1台の儲けは必ず¥30,000**になる。"
+        "上を狙うぶんだけ、玉を選んで待つ時間が要る。")
+
+    if pl.empty:
+        st.info("この軍資金で買える行が無い。旗の立っとらん行が"
+                "そもそも少ない日は、こうなる。")
+    else:
+        share = sm["遊ぶ金"] / pick if pick else 0
+        if share >= 0.3:
+            st.warning(
+                f"**軍資金の {share:.0%} が行き先無しや。** 足らんのは金やのうて"
+                "玉——買い線の内側へ落ちてくる本数(買線内)で頭打ちになっとる。"
+                "ここで金を足しても年利は増えん。**増やすなら型番のほうや。**",
+                icon="🪫")
+        if sm["今日出す金"] == 0:
+            st.warning(
+                "**今日その場で買える玉はゼロや。** この段の割り当ては全部"
+                f"「買い線を張って待つ」分で、初弾まで中央 {sm['初弾まで日']:.0f}日 "
+                "かかる。**金を用意した日=稼ぎ始めた日、やない。**", icon="⏳")
+        st.caption("並べ替えは**机上の年利**やが、決めとる軸は「年利回り = "
+                   "(純利÷保有年数) ÷ 1台の資金」や。"
+                   "**同じ型番に積めるのは `買線内 × 保有年数` 本まで**——"
+                   "それ以上は玉が来んから資金が寝るだけ。")
+        SHOW_C = ["品", "種別", "台数", "1台の資金", "使う金", "1台の純利",
+                  "上限で買ったら", "保有年数", "年に撃てる", "机上の年利",
+                  "年利回り", "次の玉まで日", "今日買える",
+                  "買いに行く", "売りに行く"]
+        disp = pl.assign(年利回り=pl["年利回り"] * 100)
+        st.dataframe(
+            disp[[c for c in SHOW_C if c in disp]],
+            hide_index=True, width="stretch",
+            column_config={
+                "台数": st.column_config.NumberColumn(format="%d 台"),
+                "1台の資金": st.column_config.NumberColumn(
+                    format="¥%d",
+                    help="輸出は**買い線**(上限まで出す覚悟の金)、"
+                         "国内といま買える玉は**出とる値段**そのもの"),
+                "使う金": st.column_config.NumberColumn(format="¥%d"),
+                "1台の純利": st.column_config.NumberColumn(
+                    format="¥%d", help="入口p25で買えた場合。**上振れ側**や"),
+                "上限で買ったら": st.column_config.NumberColumn(
+                    format="¥%d", help="買い線ちょうどで買った場合。**下振れ側**"),
+                "保有年数": st.column_config.NumberColumn(
+                    format="%.2f 年",
+                    help="棚年数(いまの在庫が捌ける年数)。**下限0.25年**——"
+                         "仕入→出品→着金は最速でも四半期"),
+                "年に撃てる": st.column_config.NumberColumn(
+                    format="%.1f 回",
+                    help="玉の供給(買線内)とスロットの回転(台数÷保有年数)の"
+                         "**小さい方**"),
+                "机上の年利": st.column_config.NumberColumn(format="¥%d"),
+                "年利回り": st.column_config.NumberColumn(format="%.0f%%"),
+                "次の玉まで日": st.column_config.NumberColumn(
+                    format="%.0f 日", help="0日 = いまそこに玉がある"),
+                "今日買える": st.column_config.CheckboxColumn("今日買える"),
+                "買いに行く": st.column_config.LinkColumn("買いに行く",
+                                                          display_text="🛒"),
+                "売りに行く": st.column_config.LinkColumn("売りに行く",
+                                                          display_text="💴"),
+            })
+
+    st.divider()
+    st.markdown("#### 段は金額やのうて「なにが確かめられたか」で上がる")
+    st.caption("¥10万→30万→50万→100万は4つの選択肢やのうて**梯子**や。"
+               "実弾の実績がゼロのうちに段を飛ばすのが、この商売で一番でかい"
+               "負け方になる。")
+    for amount, gate, note in CP.LADDER:
+        done = (amount == CP.TIERS[0]) or real_n > 0
+        mark = "✅" if (amount == CP.TIERS[0] and real_n == 0) else (
+            "▶️" if done else "🔒")
+        with st.expander(f"{mark} ¥{amount:,} — {gate}",
+                         expanded=(amount == pick)):
+            st.markdown(note)
+    if real_n == 0:
+        st.info("**いまおる段は ¥10万や。** 確定純利が¥0やから、"
+                "上の段は全部まだ開いとらん。`data/holdings.csv` に"
+                "実際に買った玉を1行書いて、売れて着金したら次の段が開く。",
+                icon="🪜")
+
 # ------------------------------------------------------------------ レーン比較
-with tabs[0]:
+with T["🌏 レーン比較"]:
     lanes = LN.load()
     if lanes.empty:
         st.info("レーンの計測がまだ無い。ローカルで `python export_snapshot.py` を回して"
@@ -546,7 +791,7 @@ with tabs[0]:
                          column_config=CFG)
 
 # ------------------------------------------------------------------ アラート
-with tabs[3]:
+with T["🔔 アラート"]:
     buy_tab, sell_tab = st.tabs(["🟩 買いアラート", "🟥 売りアラート"])
 
     with buy_tab:
@@ -654,7 +899,7 @@ with tabs[3]:
             st.dataframe(h, hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------ 台帳
-with tabs[4]:
+with T["📒 台帳"]:
     st.error(
         "**このROIを成績として読んだらあかん。** 2026-08-07に紙上で勝った6件を"
         "本文検品にかけたら **kill 6 / keep 0**(紙上純利¥73,895 → 検品通過¥0)。"
@@ -697,7 +942,7 @@ with tabs[4]:
         st.divider()
 
 # ------------------------------------------------------------------ その他チャネル
-with tabs[5]:
+with T["🌏 その他チャネル"]:
     st.subheader("越境 — 実弾GO(手で刻む)")
     st.caption("`data/manual_picks.csv` を編集すれば増える。"
                "生存しとるのは全て**工程のある出口**(委託審査・鑑定)で、"
@@ -718,7 +963,7 @@ with tabs[5]:
         st.dataframe(fa, hide_index=True, width="stretch", height=520)
 
 # ------------------------------------------------------------------ 墓場
-with tabs[6]:
+with T["💀 墓場"]:
     st.caption("**二度と手を出さんための一覧**。ここに載っとるものを思いついたら、"
                "この行の死因を読んでから動くこと。")
     grave = S.read_csv(S.DATA / "graveyard.csv")
@@ -732,7 +977,7 @@ with tabs[6]:
         "「状態が外から判る」カテゴリだけ。")
 
 # ------------------------------------------------------------------ 稼働
-with tabs[7]:
+with T["🏭 稼働"]:
     st.caption("工場が止まっとらんか。ここが古い日付で止まっとったら、"
                "アラートが出んのは「玉が無い」やのうて「見とらん」からや。")
     st.dataframe(S.freshness(), hide_index=True, width="stretch")
