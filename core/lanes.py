@@ -66,7 +66,7 @@ NUMERIC = ("仕入値", "売値", "引かれ", "純利", "年台数", "年間粗
            "フリマなら")
 TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠", "url",
            "買いに行く", "売りに行く", "走査", "検品", "等級",
-           "帯", "構成", "構成差", "出口状態", "型番弱",
+           "帯", "構成", "構成差", "出口状態", "型番弱", "最終確認",
            # **「その玉の状態」と「どっちの中央値で売値を出したか」。**
            # 輸出は `構成`(枝番/セット/状態)が既に持っとる。国内は別列や
            "状態", "出口基準",
@@ -86,6 +86,13 @@ TEXTUAL = ("品", "レーン", "種別", "仕入面", "売面", "玉", "根拠",
 # メルカリとラクマの走査器はブラウザが要るので定期実行に載っとらん。
 # **status は走査した時にしか更新されんので、古い行は SOLD にならず生き残る。**
 STALE_HOURS = 48
+
+# 🚨 **輸出の「いま買える」にも鮮度が要る**(2026-08-31)。国内(現物)だけ
+# STALE_HOURS で切っとって、輸出の live 玉は**最後の目撃のまま永久に生き残る**
+# 形やった。MARANTZ SA-10 の ¥330,000 が売れた後も「いま買える 1件」と出とった。
+# fleet_watch の掃きは1時間おき(167回の実測で間隔は中央1.0h・最大1.0h)。
+# 2回ぶん見えんかったら、もうそこに無い
+LIVE_STALE_H = 2.5
 
 # 🚨 **買い線の内側=その商品、やない。**
 # ヤフオク側は英語の ACC_RE しか通っとらんので、日本語の付属品が本体判定を抜ける:
@@ -231,6 +238,13 @@ def _export_from_souba() -> pd.DataFrame:
             "|".join(sorted({x.get("verdict", "") for x in
                              _hits(m, f * LIVE_MIN_RATIO)} - {""}))
             for m, f in zip(d["機種"], d["入口p25"])],
+        # **その玉をいつ見たか。** 数字やのうてこの新しさが「買えるか」を決める。
+        # 1時間おきの掃きに居らんかった玉は上で落としとるので、ここに出る時刻は
+        # 「直近の掃きで確かに在った」いう意味になる(2026-08-31)
+        "最終確認": [
+            max([x.get("見た", "") for x in _hits(m, f * LIVE_MIN_RATIO)],
+                default="")
+            for m, f in zip(d["機種"], d["入口p25"])],
         "棚年数": d["機種"].map(lambda m: _shelf_years().get(str(m))),
         # 🚨 **粗利/台では「捌ける玉」と「動かん棚」の区別が付かん。**
         # 2026-08-24 の実測: 純利¥20,000以上の62行 机上¥7,927,934 のうち
@@ -326,6 +340,17 @@ def _live_buys() -> dict[str, list[dict]]:
     `under_max` が True の行だけ拾って、安い順で出す。
 
     同じ auction_id が何度も記録されとるので**最後に見た行だけ**採る。
+
+    🚨 **最後に見た行 = いま在る、やない**(2026-08-31)。MARANTZ SA-10 の
+    ¥330,000 がヤフオクで売れた後も、盤は次の日まで「いま買える 1件」と
+    出しとった。`buy_targets.csv` は**見えた玉しか書かん**ので、終了した玉は
+    最後の目撃行のまま永久に残る。掃きは1時間おき(実測: 167回の間隔が
+    中央1.0h・最大1.0h)やから、**直近の掃きに居らんかったらもう無い**。
+
+    ただし「居らん」には2種類ある——**見に行って0件**と**見に行けんかった**や。
+    `fleet_watch` が掃きごとに点呼を `buy_sweeps.csv` に残すようにしたので、
+    その機種が最後に**引けた**のがいつかで判定する。点呼がまだ無い古いデータは
+    時間で切る(下の `LIVE_STALE_H`)。
     """
     p = S.SOUBA / "data" / "fleet" / "buy_targets.csv"
     if not p.exists():
@@ -337,6 +362,26 @@ def _live_buys() -> dict[str, list[dict]]:
     if d.empty:
         return {}
     d = d.sort_values("checked_at").drop_duplicates("auction_id", keep="last")
+    # ── 終了した玉を落とす ──
+    ok_at = _sweep_ok()
+    last_all = pd.to_datetime(d["checked_at"], errors="coerce", utc=True).max()
+
+    def _alive(r) -> bool:
+        seen = pd.to_datetime(r.get("checked_at"), errors="coerce", utc=True)
+        if pd.isna(seen):
+            return False              # いつ見たか分からん玉は数えん
+        ref = ok_at.get(str(r.get("target")))
+        if ref is not None and pd.notna(ref):
+            # **その機種を最後に引けた掃きに居らんかった = もう無い**
+            return seen >= ref
+        if pd.notna(last_all):
+            # 点呼が無い時代のデータ。掃き1回ぶんの余裕を足して時間で切る
+            return (last_all - seen).total_seconds() / 3600 <= LIVE_STALE_H
+        return True
+
+    d = d[d.apply(_alive, axis=1)]
+    if d.empty:
+        return {}
     # 🚨 **買い線の内側=買える、やない。** fleet_watch は本文も読んどって、
     # 2026-08-24 の実測では under_max の14件中**6件が kill**やった
     #   TASCAM DA-3000 ¥34,000  [動作未確認]
@@ -363,10 +408,35 @@ def _live_buys() -> dict[str, list[dict]]:
             # 形がここにも出た(2026-08-24)。空文字に潰す
             "マスク救済": ("" if pd.isna(r.get("マスク救済"))
                         else str(r.get("マスク救済") or "")),
+            # **いつ見た玉か。** 盤に出すのは数字やのうてこれの新しさや
+            "見た": str(r.get("checked_at") or ""),
         })
     for v in out.values():
         v.sort(key=lambda x: (x["price"] if pd.notna(x["price"]) else 1e18))
     return out
+
+
+def _sweep_ok() -> dict:
+    """機種 -> **最後にその機種を引けた掃きの時刻**。`buy_sweeps.csv`。
+
+    🚨 **「見えんかった」には2種類ある。** 見に行って0件やったんと、
+    リクエストが落ちて見に行けんかったんや。`fleet_watch.scan_buy` は
+    `except RequestException: continue` でその機種を丸ごと飛ばすことがあるので、
+    「最新の掃きに居らん=終了」だけでは**通信エラーを売却と読み違える**。
+    点呼で `ok=True` の回だけを基準にする(0件と未測を分ける、いつもの話や)。
+    """
+    p = S.SOUBA / "data" / "fleet" / "buy_sweeps.csv"
+    if not p.exists():
+        return {}
+    d = S.read_csv(p)
+    if d.empty or "ok" not in d or "target" not in d:
+        return {}
+    d = d[d["ok"].astype(str).str.lower().isin(("true", "1"))]
+    if d.empty:
+        return {}
+    t = pd.to_datetime(d["sweep_at"], errors="coerce", utc=True)
+    return dict(pd.DataFrame({"target": d["target"], "t": t})
+                .dropna().groupby("target")["t"].max())
 
 
 def _norm_model(v) -> str:

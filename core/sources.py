@@ -174,6 +174,14 @@ def freshness() -> pd.DataFrame:
     if snaps:
         add("キタムラ買取スナップ(最新)", snaps[-1][1], f"全{len(snaps)}枚")
     add("fa-souba 朝リスト", _latest_morning() or FA / "data/morning", "ヤフオク→eBay")
+    # 🚨 **掃きが止まると「いま買える」が黙って0になる。**
+    # 2026-08-31、輸出レーンに鮮度の門を入れた——直近の掃きに居らん玉は
+    # 落とす形や。せやから**掃きそのものが止まった日は「玉が無い日」に見える**。
+    # 止まっとるのと出物が無いのは別の話やから、掃きの時刻を画面に出す
+    add("fleet 買い張り(1時間おき)", SOUBA / "data/fleet/buy_targets.csv",
+        "ここが古いと「いま買える」が0に見える")
+    add("fleet 掃きの点呼", SOUBA / "data/fleet/buy_sweeps.csv",
+        "機種ごとに引けたかの記録。無いと終了判定が時間頼みになる")
     return pd.DataFrame(rows)
 
 
