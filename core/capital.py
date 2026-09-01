@@ -132,8 +132,20 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
         # 年に何回この型番を撃てるか。玉の供給(買線内)と、スロットの回転
         # (1/保有年数)の**小さい方**で決まる。国内の現物は1回きり
         supply = 1.0 if kind.startswith("国内") else _num(r, "買線内")
+        # 🚨 **国内(現物)は1行1個やが、同じ型番の玉は出口を食い合う**(2026-09-01)。
+        # ¥100万の案が23本中**13本が同じ WH36DD** になっとった。1行ずつ独立に
+        # 足しとったからで、13台まとめて捌けるかは一切見てへん。
+        # 輸出は1機種1スロットずつ配って分散しとるのに、国内だけ素通しやった。
+        # **群(型番)で束ねて、輸出と同じ扱いにする。**
+        grp = str(r.get("玉") or r.get("品") or "")
+        # その型番が保有期間のあいだに市場が吸える台数。相場n は**過去180日**の
+        # 落札数やから年は ×2。これを超えて積んでも捌けん
+        n180 = _num(r, "相場n")
+        absorb = (n180 * 2 * hold) if pd.notna(n180) and n180 > 0 else float("nan")
         out.append({
-            "品": r.get("品", ""), "種別": kind,
+            "品": r.get("品", ""), "種別": kind, "群": grp,
+            "群の上限": (max(1, int(math.floor(absorb))) if pd.notna(absorb)
+                       else (slots if not kind.startswith("国内") else 1)),
             "1台の資金": cost, "純利": net, "上限で買ったら": floor_net,
             "保有年数": hold, "年利/台": net / hold,
             "年利回り": net / hold / cost,
@@ -165,16 +177,31 @@ def plan(df: pd.DataFrame, budget: float) -> pd.DataFrame:
     if src.empty:
         return pd.DataFrame()
     taken = [0] * len(src)
+    # **群ごとの取得数**。同じ型番の玉は、輸出の1機種と同じ天井で止める
+    by_grp: dict = {}
     left = float(budget)
     moved = True
     while moved:
         moved = False
+        # 🚨 **1周で同じ型番は1台まで。** 国内(現物)は1行1個やから、
+        # 行で回すと同じ型番が13本並ぶ(2026-09-01、¥100万の23本中13本が WH36DD)。
+        # 輸出は1機種1スロットずつ配って分散しとるのに、国内だけ素通しやった。
+        # **出口を何台食えるかは一度も測っとらん**(実弾の売却実績が¥0や)ので、
+        # 勝手な取り分を決めるより「他を全部1台ずつ配ってから2台目」が正直や。
+        seen_grp: set = set()
         for i, r in src.iterrows():
             if taken[i] >= r["スロット上限"]:
                 continue
+            g = r["群"]
+            if g in seen_grp:
+                continue          # この周では、その型番はもう配った
+            if by_grp.get(g, 0) >= r["群の上限"]:
+                continue          # 保有期間に市場が吸える台数を超えとる
             if r["1台の資金"] > left:
                 continue
             taken[i] += 1
+            by_grp[g] = by_grp.get(g, 0) + 1
+            seen_grp.add(g)
             left -= r["1台の資金"]
             moved = True
     rows = []

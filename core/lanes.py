@@ -890,6 +890,14 @@ def flags(df: pd.DataFrame, ratio: float | None = None,
         sh = num("棚年数").get(i)
         if pd.notna(sh) and sh >= 5:
             w.append(f"棚{sh:.0f}年分=在庫が動かん")
+        # 🚨 **棚年数が無い行は「競合ゼロ」やのうて「数えられてへん」**(2026-09-01)。
+        # 前は sell_through が 0.0 を書いとって、盤はそれを最高の値として扱っとった
+        # (年利/台 = 粗利 ÷ max(棚年数,0.25) やから分母が最小=年利が最大)。
+        # 0.0 の25機種を数え直したら**25機種とも測定失敗**で、本物の競合ゼロは
+        # 1つも無かった(YAMAHA CP88 は ACTIVE が11本出とるのに本体0)。
+        # 空欄になった今、黙って最下位に沈めるのも同じ間違いや。**旗で名指しする。**
+        elif not pd.notna(sh) and is_export:
+            w.append("棚年数が不明=競合を数えられてへん")
         resc = d["マスク救済"].get(i) if "マスク救済" in d else None
         if isinstance(resc, str) and resc.strip():
             w.append(f"マスクで生存[{resc.strip()}]=人が本文を読む")
