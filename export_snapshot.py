@@ -125,7 +125,18 @@ def main() -> int:
     # 「どこで買ってどこで売るか」。**旗立ては画面側でやる**
     # (閾値をスライダーで動かすので、生の列を持たせたまま出す)
     dump("lanes", LN.build())
-    dump("freshness", S.freshness())
+    fresh = S.freshness()
+    dump("freshness", fresh)
+    # 🚨 **止まった源のまま publish しても、ログに何も残らんかった。**
+    # publish_board.bat は3時間おきに走って logs/publish.log にだけ書く。
+    # 盤が「古い断面」を出しとることは、そのログを読んでも分からんかった——
+    # 止まっとるのに気づかせるのが鮮度の門の役目やから、ここでも吠える。
+    # **止めはせん**(publish を止めたら盤ごと古くなるだけで、事態が悪化する)。
+    stale = S.stalled(fresh)
+    if not stale.empty:
+        print(f"\n  🚨 土台が {len(stale)} 本止まっとる。この断面は古い:")
+        for _, r in stale.iterrows():
+            print(f"     {r['データ源']}  {r['経過']}前  {r['状態']}")
     fa_date, fa = S.fa_morning()
     dump("fa_morning", fa)
 

@@ -466,8 +466,15 @@ def _load_env(path: str = r"C:\dev\.env") -> dict:
 PROVIDERS = {
     "cerebras": dict(url="https://api.cerebras.ai/v1/chat/completions",
                      model="gpt-oss-120b", env="CEREBRAS_API_KEY"),
+    # 🚨 2026-09-08、控えが**死んどった**。`llama-3.3-70b-versatile` は Groq の
+    # /v1/models から消えとる(魚プロジェクトが2026-08-20に3社同時消滅を記録済み)。
+    # Cerebras の日次枠が枯れた瞬間にフォールバック先が全滅で、そこから先は
+    # 全部 'error' 判定になる——**枯渇した日だけ黙って生存を取りこぼす**形や。
+    # 差し替え先は **Cerebras の主と同じ gpt-oss-120b**。ホストだけ替えて
+    # 判定器は替えん——判定器が変わったら等級の比較可能性が消える
+    # (regex版とLLM版で結論が変わった実測がある)。
     "groq": dict(url="https://api.groq.com/openai/v1/chat/completions",
-                 model="llama-3.3-70b-versatile", env="GROQ_API_KEY"),
+                 model="openai/gpt-oss-120b", env="GROQ_API_KEY"),
 }
 PROVIDER_ORDER = ["cerebras", "groq"]
 
@@ -509,6 +516,14 @@ def judge_llm(session: requests.Session, body: str, api_key: str,
                 if low or any(m in r.text for m in EXHAUST_MARKS):
                     return "exhausted", f"{provider}: 1日の枠を使い切った"
                 return "throttled", f"{provider}: 分/時の制限"
+            # 🚨 **プロバイダの死と、1件の失敗は別物や。**
+            # 401=鍵が違う / 402=課金停止 / 403=禁止 / 404=モデルが消えた。
+            # どれも次の1件で直ることは無いので、"error" に混ぜたらあかん——
+            # 混ぜとったせいで 2026-09-08 は Cerebras の 402 が
+            # 「この1件が駄目やった」と読まれて、**控えを一度も呼ばずに
+            # 全件 regex 退避**しとった(判定器の名前は LLM のまま)。
+            if r.status_code in (401, 402, 403, 404):
+                return "dead", f"{provider}: HTTP{r.status_code}"
             return "error", f"HTTP{r.status_code}"
         obj = _json.loads(r.json()["choices"][0]["message"]["content"])
     except Exception as exc:  # noqa: BLE001 — 何で落ちても regex に退避したい
@@ -799,6 +814,11 @@ def main() -> int:
         if providers and body and verdict == "kill" and not locked and not exhausted:
             snips = defect_snippets(body)
             lv, lh = "", ""
+            tried_here: set[str] = set()    # この1件で当たったプロバイダ
+            # **プロバイダを1本ずつ当たる。** 前は `error` で while を break
+            # しとったから、主が 402 を返した瞬間に控えを呼ばず諦めとった。
+            # いまは keep/kill が出るまで下りる。1件だけの `error`(通信・JSON)
+            # でも次の1本を試す——控えが生きとるのに使わん理由が無い。
             while providers:
                 name, key = providers[0]
                 for wait in (0,) + RETRY_WAITS:
@@ -812,11 +832,27 @@ def main() -> int:
                     print(f"! {name} が詰まっとる。次へ", flush=True)
                     providers.pop(0)
                     continue
-                if lv != "exhausted":
-                    break
-                print(f"! {name} の1日枠が尽きた({i}/{len(rows)}件目)", flush=True)
-                providers.pop(0)
-            if lv == "exhausted" or not providers:
+                if lv == "dead":            # 鍵・課金・モデル消滅。今日はもう無理
+                    print(f"! {name} が使えん({lh})。以後このプロバイダは呼ばん",
+                          flush=True)
+                    providers.pop(0)
+                    continue
+                if lv == "exhausted":
+                    print(f"! {name} の1日枠が尽きた({i}/{len(rows)}件目)",
+                          flush=True)
+                    providers.pop(0)
+                    continue
+                if lv == "error":           # この1件だけの失敗。次の1本を試す
+                    # 🚨 プロバイダは**捨てん**(次の1件では直るかもしれん)。
+                    # せやから後ろに回すだけ。ただし回すだけやと一周して
+                    # 無限に回るので、この1件で試した本数を数えて止める。
+                    tried_here.add(name)
+                    providers.append(providers.pop(0))
+                    if len(tried_here) >= len(providers):
+                        break
+                    continue
+                break                       # keep / kill が出た
+            if lv in ("exhausted", "dead") or not providers:
                 exhausted = True
                 print(f"! 全プロバイダの枠が尽きた。ここから先は正規表現で続ける。"
                       f"翌日 --resume で続きを。", flush=True)

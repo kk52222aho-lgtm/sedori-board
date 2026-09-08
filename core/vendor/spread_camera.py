@@ -91,7 +91,12 @@ def main():
             snapshot_date = snapshot_date or (r["collected_at"] or "")[:10]
             liq[fam] += 1
             mt = norm(title)          # 照合はこっち。title は原文のまま出力に使う
-            if PARTS_RE.search(mt) or JUNK_RE.search(mt):
+            # 🚨 「型番+用」= 対応機種の表記や(2026-09-09に追加)。
+            # 「Canon HDU-1 ハンドルユニット XA20/XA25用」が XA20 の本体として
+            # 通っとって、**これ1件だけで XA20 が🟢実弾GOに化けとった**。
+            # FOR_RE 丸ごとやのうて FOR_MODEL_RE だけ借りる——`専用` は
+            # 「[専用] SONY FX30」= 取り置き出品の本体に誤爆するから(実測)。
+            if PARTS_RE.search(mt) or JUNK_RE.search(mt) or IB.FOR_MODEL_RE.search(mt):
                 continue
             if not spec["match"].search(mt):
                 continue

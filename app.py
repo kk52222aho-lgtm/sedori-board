@@ -178,6 +178,21 @@ c3.metric("期待粗利 / 180日", yen(go["期待粗利180d"].sum()),
 # 詳しい理屈と実例は core/audit_gate.py に書いた。
 st.warning(AG.AUDIT_NOTE, icon="🔍")
 
+# 🚨 **止まっとる土台は9枚目のタブに埋めたら誰も見ん。**
+# 2026-09-08まで🏭稼働タブは `p.exists()` しか見とらんくて、等級の土台である
+# 検品結果2枚が**32日**古いまま「生存」と出とった。数字が古いのと数字が
+# 間違っとるのは、読み手には見分けが付かん。上の3つの数字を疑う理由が
+# あるときは、その数字のすぐ下で言う。
+_stale = S.stalled()
+if not _stale.empty:
+    st.error(
+        "**上の数字の土台が古い。** "
+        + " / ".join(f"{r['データ源']} は{r['経過']}前({r['状態']})"
+                     for _, r in _stale.iterrows())
+        + "。\n\n等級は本文検品だけで付けとるから、**検品結果が落札より古い間は"
+          "新しく落ちた玉が1件も採点に入っとらん**。"
+          "🏭稼働タブに直し方を出しとる。", icon="🚨")
+
 # **レーン比較を先頭に置く。** 「どこで買ってどこで売るか」が最初に来んと、
 # 判断材料が8枚に散ったままになる(2026-08-24に言われた)。
 # 🚨 **タブは番号やのうて名前で引く。** 並びの途中に1枚差し込むと、後ろの
@@ -390,9 +405,22 @@ with T["🛒 いま買える"]:
         "「流動性180d」= **本体**の落札件数(部品・互換品・別世代は工場と同じフィルタで除外済み)。"
         "生ヒットとの差が大きい型番は、検索は当たるのに玉が無い。"
         "「期待粗利180d」= 検品を通った件数 × その粗利中央値。")
+    # 🚨 **生存件数を「機会の数」と読んだらあかん。**
+    # NEX-VG20 の生存3件は全部 2026-08-31 終了・M1013/M1014/M1015 の連番・
+    # 同一テンプレ = **1出品者のまとめ放出**やった。盤はそれを 3件×¥3,520 と
+    # 読んで GO閾値¥10,000 をギリギリ越えとった。実際は機会1件で🟡薄い。
+    # **等級は黙って動かさん**(割り方の正しさを後から検算できんようになる)。
+    # 「生存日数」を並べて置いて、読み手が割り引けるようにする。
+    _bundle = view[view.get("束の疑い", False) == True]  # noqa: E712
+    if not _bundle.empty:
+        st.warning(
+            "**束の疑い: " + " / ".join(_bundle["商品"].astype(str)) + "**。"
+            "生存が全部同じ日に終わっとる = 1出品者のまとめ放出の可能性が高い。"
+            "その場合「機会の数」は生存件数やのうて**1件**やから、"
+            "期待粗利はその分だけ薄く読むこと。", icon="📦")
     show = view[["判定", "商品", "family", "ニッチ", "買取", "上限入札",
                  "流動性180d", "生ヒット", "落札中央",
-                 "検品n", "生存", "生存率", "期待粗利180d",
+                 "検品n", "生存", "生存日数", "束の疑い", "生存率", "期待粗利180d",
                  "シグナル", "紙上勝", "稼働中", "根拠"]].copy()
     st.dataframe(
         show, hide_index=True, width="stretch", height=520,
@@ -403,6 +431,13 @@ with T["🛒 いま買える"]:
             "流動性180d": st.column_config.NumberColumn("玉/180日"),
             "生存率": st.column_config.NumberColumn(format="%.0f%%"),
             "期待粗利180d": st.column_config.NumberColumn("期待粗利/180日", format="¥%d"),
+            "生存日数": st.column_config.NumberColumn(
+                "生存日数", help="生存した玉の終了日が何日に散っとるか。"
+                                 "生存件数と離れとるほど、同じ出品者の束を"
+                                 "「別々の機会」と数えとる疑いが濃い"),
+            "束の疑い": st.column_config.CheckboxColumn(
+                "束", help="生存2件以上が全部同じ日に終わっとる。"
+                           "1出品者のまとめ放出なら機会は1件や"),
         })
 
     with st.expander("検品を通った個体そのもの(勝てた玉の実例)"):
@@ -986,7 +1021,47 @@ with T["💀 墓場"]:
 with T["🏭 稼働"]:
     st.caption("工場が止まっとらんか。ここが古い日付で止まっとったら、"
                "アラートが出んのは「玉が無い」やのうて「見とらん」からや。")
-    st.dataframe(S.freshness(), hide_index=True, width="stretch")
+    # 🚨 2026-09-08まで、この表の「状態」は `p.exists()` しか見とらんかった。
+    # **止まっても永久に「生存」と出る門**やから、止まっとるのに気づかせる
+    # という目的をそもそも果たしてへん。門を2つ入れた: (1)定期実行がある源は
+    # 登録間隔の1.5倍で遅延・3倍で停止、(2)派生物は入力より新しいはず。
+    _f = S.freshness()
+    if S.CLOUD:
+        st.caption("**「経過」は公開した時点の値や。** クラウドには実物の"
+                   "ファイルが無いので、ここから先の経過は測れん——"
+                   "この断面が何日前かは上の作成時刻で割り引くこと。")
+    _bad = _f[_f["状態"] != "生存"] if "状態" in _f else _f.iloc[:0]
+    c1, c2 = st.columns(2)
+    c1.metric("見とる源", f"{len(_f)} 本")
+    c2.metric("止まっとる源", f"{len(_bad)} 本",
+              delta=None if _bad.empty else "要対処", delta_color="inverse")
+    st.dataframe(_f, hide_index=True, width="stretch",
+                 column_config={
+                     "状態": st.column_config.TextColumn(
+                         "状態", help="生存 / ⏳遅延(周期の1.5倍超) / "
+                                      "🚨停止(3倍超) / 🚨欠損 / 🚨入力より古い"),
+                     "周期": st.column_config.TextColumn(
+                         "周期", help="期待する更新間隔。docs/scheduled.md の"
+                                      "実際の登録間隔から取っとる"),
+                     "土台": st.column_config.CheckboxColumn(
+                         "土台", help="ここが古いと盤の判断が壊れる源。"
+                                      "止まったら盤の頭に赤を出す"),
+                 })
+    if not _bad.empty:
+        st.error("**止まっとる源がある。** 上の数字はその古い断面で出とる。", icon="🚨")
+    st.info(
+        "**検品結果(等級の土台)には定期実行が無い。** "
+        "落札180日は月次で回っとるのに検品は手で回すもんやから、"
+        "放っといたら必ず落札より古くなる——「入力より古い」の門はそれ専用や。"
+        "下の3本目のコマンドがそれ。", icon="🔍")
+    st.caption(
+        "**2026-09-08に古さを金額で測った。** 落札を9/01基準で候補に焼き直したら"
+        "wide帯は96→156件、うち**66件が8/07の検品に入っとらん**"
+        "(窓は90/96重なっとるので、これは窓の進みやのうて純増や)。"
+        "粗利¥3,000以上に絞ると**28件・12family・机上¥521,516**、"
+        "実測の生存率14.9%を掛けて**期待¥77,706**——"
+        "いま盤が出しとる実弾GO 3型番の¥36,100より大きい。"
+        "**ただし逆選択があるから上振れ側の見積もりで、検品を通すまでは机上や。**")
     st.markdown(
         "```\n"
         "# カメラ工場を常駐(30分毎)\n"
@@ -995,5 +1070,29 @@ with T["🏭 稼働"]:
         "cd C:\\dev\\souba-league && python src/kitamura_dump.py\n\n"
         "# アラートをDiscordに飛ばす常駐\n"
         "cd C:\\dev\\sedori-board && python watch.py --loop 20\n"
+        "\n"
+        "# 等級の土台を焼き直す(定期実行が無い。落札を回したら必ずこれも回す)\n"
+        "cd C:\\dev\\souba-league\n"
+        "# 🚨 帯ごとに models / yahoo / out を揃える。既定引数は base帯やから、\n"
+        "#    そのまま回すと wide帯の candidates.csv を別の母集団で上書きする\n"
+        "# 1) 落札180日を更新\n"
+        "python src/yahoo_closed.py --models models/camera.csv       \\\n"
+        "       --out data/camera/yahoo_closed.csv\n"
+        "python src/yahoo_closed.py --models models/camera_wide.csv  \\\n"
+        "       --out data/camera/yahoo_closed_wide.csv\n"
+        "python src/yahoo_closed.py --models models/camera_cheap.csv \\\n"
+        "       --out data/camera/yahoo_closed_cheap.csv\n"
+        "# 2) 候補を作り直す（等級が乗っとるのは wide帯 = candidates.csv）\n"
+        "python src/spread_camera.py --models models/camera_wide.csv  \\\n"
+        "       --yahoo data/camera/yahoo_closed_wide.csv             \\\n"
+        "       --out-candidates data/camera/candidates.csv\n"
+        "python src/spread_camera.py --models models/camera_cheap.csv \\\n"
+        "       --yahoo data/camera/yahoo_closed_cheap.csv            \\\n"
+        "       --out-candidates data/camera/candidates_cheap.csv\n"
+        "# 3) 本文検品（これが等級の土台。LLMは無料枠なので時間がかかる）\n"
+        "python src/verify_body.py --candidates data/camera/candidates.csv \\\n"
+        "       --out data/camera/candidates_llm.csv --llm\n"
+        "python src/verify_body.py --candidates data/camera/candidates_cheap.csv \\\n"
+        "       --out data/camera/candidates_cheap_llm.csv --llm\n"
         "```")
     st.caption("Discord webhook は `C:\\dev\\.env` の `FACTORY_WEBHOOK_URL=` を共用する。")

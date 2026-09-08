@@ -203,14 +203,24 @@ def build_master() -> pd.DataFrame:
 
         if not ver.empty:
             ver["is_keep"] = ver["body_verdict"].eq("keep")
+            # 🚨 **生存件数を「機会の数」と読んだらあかん。**
+            # NEX-VG20 は生存3件やが、3件とも 2026-08-31 終了・M1013/M1014/M1015 の
+            # 連番・同一テンプレ = **1出品者のまとめ放出**やった。盤はそれを
+            # 3件×¥3,520=¥10,560 と読んで、GO閾値¥10,000をギリギリ越えとった。
+            # 実際は機会1件で🟡薄いや。出品者IDは取っとらんので終了日で代理する
+            # (1ブロックに複数の出品者が混じるので、IDがあっても素直には使えん)。
+            ver["_end_d"] = pd.to_datetime(
+                ver.get("end_time"), errors="coerce").dt.date
             agg = ver.groupby("family").agg(
                 検品n=("body_verdict", "size"),
                 生存=("is_keep", "sum"),
                 生存粗利中央=("gross_hc", lambda s: s[ver.loc[s.index, "is_keep"]].median()),
                 粗利中央_全=("gross_hc", "median"),
+                生存日数=("_end_d", lambda s: s[ver.loc[s.index, "is_keep"]].nunique()),
             )
         else:
-            agg = pd.DataFrame(columns=["検品n", "生存", "生存粗利中央", "粗利中央_全"])
+            agg = pd.DataFrame(columns=["検品n", "生存", "生存粗利中央",
+                                        "粗利中央_全", "生存日数"])
 
         if not sig.empty:
             sg = sig.groupby("family").agg(
@@ -252,8 +262,13 @@ def build_master() -> pd.DataFrame:
     for c in ("生存粗利中央", "粗利中央_全", "紙上純利", "買取", "落札中央"):
         df[c] = pd.to_numeric(df.get(c), errors="coerce")
 
+    df["生存日数"] = pd.to_numeric(df.get("生存日数"),
+                                   errors="coerce").fillna(0).astype(int)
     df["生存率"] = np.where(df["検品n"] > 0, df["生存"] / df["検品n"], np.nan)
     df["期待粗利180d"] = (df["生存"] * df["生存粗利中央"].fillna(0)).clip(lower=0)
+    # **等級は黙って動かさん。旗を立てるだけ。** 数字を勝手に割ると、割り方が
+    # 正しかったかを後から検算できんようになる。読み手に見せて判断させる。
+    df["束の疑い"] = (df["生存"] >= 2) & (df["生存日数"] <= 1)
     graded = df.apply(lambda r: _grade(r["流動性180d"], r["生ヒット"], r["検品n"],
                                        r["生存"], r["期待粗利180d"]),
                       axis=1, result_type="expand")
