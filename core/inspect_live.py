@@ -38,8 +38,7 @@ except Exception:
 
 CACHE = S.DATA / "live_inspect.csv"
 PAGE = "https://page.auctions.yahoo.co.jp/jp/auction/{}"
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+UA = "Mozilla/5.0 (compatible; sedori-board/1.0; personal research)"
 NEXT_RE = re.compile(r'id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
 
 
