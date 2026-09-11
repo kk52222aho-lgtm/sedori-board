@@ -28,7 +28,7 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parents[1]
-UA = "Mozilla/5.0 (compatible; sedori-board/1.0; personal research)"
+UA = "Mozilla/5.0 (compatible; souba-league/1.0; personal research)"
 ITEM_URL = "https://aucfree.com/items/{}"
 
 # 本文で撃墜する語。タイトル用(spread_*.py の JUNK_RE)より広く取る——
