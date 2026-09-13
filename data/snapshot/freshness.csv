@@ -1,13 +1,13 @@
 ﻿データ源,パス,最終更新,経過,周期,状態,土台,備考
-カメラ・工場台帳,C:\dev\souba-league\data\factory\signals.csv,2026-09-13 18:08,0.2時間,1.0時間,生存,True,ヤフオク → キタムラ/フジヤ買取
-カメラ・検品結果,C:\dev\souba-league\data\camera\candidates_llm.csv,2026-09-13 03:34,14.8時間,—,生存,True,判定器: LLM(撃墜111件を全部LLMが裁いた)。等級はこれだけで付く
-カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed.csv,2026-09-13 03:01,15.3時間,30.0日,生存,True,流動性と等級の土台
-カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed_wide.csv,2026-09-13 03:10,15.2時間,30.0日,生存,True,流動性と等級の土台
-カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed_cheap.csv,2026-09-13 03:27,14.9時間,30.0日,生存,True,流動性と等級の土台
-楽器・工場台帳,C:\dev\souba-league\data\factory\signals_gakki.csv,2026-09-13 17:50,0.5時間,1.0時間,生存,True,ヤフオク → イシバシ/島村買取
-楽器・検品結果,C:\dev\souba-league\data\gakki\candidates_llm.csv,2026-09-13 03:40,14.7時間,—,生存,True,判定器: LLM(撃墜29件を全部LLMが裁いた)。等級はこれだけで付く
-楽器・落札180日,C:\dev\souba-league\data\gakki\yahoo_closed.csv,2026-09-13 03:31,14.8時間,30.0日,生存,True,流動性と等級の土台
-キタムラ買取スナップ(最新),C:\dev\souba-league\data\camera\kitamura_buy_2026-09-13.csv,2026-09-13 07:49,10.5時間,24.0時間,生存,True,全16枚
-fa-souba 朝リスト,C:\dev\fa-souba\data\morning\2026-09-13.md,2026-09-13 06:32,11.8時間,24.0時間,生存,False,ヤフオク→eBay
-fleet 買い張り(1時間おき),C:\dev\souba-league\data\fleet\buy_targets.csv,2026-09-13 17:51,0.5時間,1.0時間,生存,True,ここが古いと「いま買える」が0に見える
-fleet 掃きの点呼,C:\dev\souba-league\data\fleet\buy_sweeps.csv,2026-09-13 17:51,0.5時間,1.0時間,生存,True,機種ごとに引けたかの記録。無いと終了判定が時間頼みになる
+カメラ・工場台帳,C:\dev\souba-league\data\factory\signals.csv,2026-09-13 21:08,0.2時間,1.0時間,生存,True,ヤフオク → キタムラ/フジヤ買取
+カメラ・検品結果,C:\dev\souba-league\data\camera\candidates_llm.csv,2026-09-13 03:34,17.8時間,—,生存,True,判定器: LLM(撃墜111件を全部LLMが裁いた)。等級はこれだけで付く
+カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed.csv,2026-09-13 03:01,18.3時間,30.0日,生存,True,流動性と等級の土台
+カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed_wide.csv,2026-09-13 03:10,18.2時間,30.0日,生存,True,流動性と等級の土台
+カメラ・落札180日,C:\dev\souba-league\data\camera\yahoo_closed_cheap.csv,2026-09-13 03:27,17.9時間,30.0日,生存,True,流動性と等級の土台
+楽器・工場台帳,C:\dev\souba-league\data\factory\signals_gakki.csv,2026-09-13 20:50,0.5時間,1.0時間,生存,True,ヤフオク → イシバシ/島村買取
+楽器・検品結果,C:\dev\souba-league\data\gakki\candidates_llm.csv,2026-09-13 03:40,17.7時間,—,生存,True,判定器: LLM(撃墜29件を全部LLMが裁いた)。等級はこれだけで付く
+楽器・落札180日,C:\dev\souba-league\data\gakki\yahoo_closed.csv,2026-09-13 03:31,17.8時間,30.0日,生存,True,流動性と等級の土台
+キタムラ買取スナップ(最新),C:\dev\souba-league\data\camera\kitamura_buy_2026-09-13.csv,2026-09-13 07:49,13.5時間,24.0時間,生存,True,全16枚
+fa-souba 朝リスト,C:\dev\fa-souba\data\morning\2026-09-13.md,2026-09-13 06:32,14.8時間,24.0時間,生存,False,ヤフオク→eBay
+fleet 買い張り(1時間おき),C:\dev\souba-league\data\fleet\buy_targets.csv,2026-09-13 20:51,0.5時間,1.0時間,生存,True,ここが古いと「いま買える」が0に見える
+fleet 掃きの点呼,C:\dev\souba-league\data\fleet\buy_sweeps.csv,2026-09-13 20:51,0.5時間,1.0時間,生存,True,機種ごとに引けたかの記録。無いと終了判定が時間頼みになる
