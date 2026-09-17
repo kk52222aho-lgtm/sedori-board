@@ -26,8 +26,28 @@ MOVE_MIN_YEN = 2000
 MOVE_MIN_PCT = 0.03
 
 
+def human_killed() -> set[str]:
+    """人手で kill を書いた auction_id。**最終権限は人間**やから全部に効かせる。"""
+    human = S.read_csv(S.DATA / "human_verdicts.csv", dtype={"auction_id": str})
+    if human.empty or "auction_id" not in human:
+        return set()
+    return set(human[human["verdict"] == "kill"]["auction_id"].astype(str))
+
+
 def buy_alerts(master: pd.DataFrame, include_dead: bool = False) -> pd.DataFrame:
-    """進行中の買いシグナル。等級つき・残り時間つき。"""
+    """進行中の買いシグナル。等級つき・残り時間つき。
+
+    🚨 **人手の kill がここだけ効いとらんかった**(2026-09-17)。
+    `load_verified` / `live_winners` / `winners` は全部 human_verdicts.csv を
+    最終権限として当てとるのに、**買いアラートだけが素通し**やった。
+    一番まずい抜け方や——ここは「いま買え」と名指しする唯一の画面で、
+    上段の「いま出とる買い N件」もこの数を出しとる。人手で誤マッチと
+    判定した玉を、盤が🟢実弾GOのまま出し続ける形になっとった。
+
+    等級(型番単位)で握り潰す 🔴 とは別の軸やから両方要る。誤マッチは
+    **型番が健全でも個体が別物**という壊れ方をするので、型番の等級では
+    絶対に落ちん(`core/audit_gate.py` の docstring がその実例集や)。
+    """
     frames = [W.load_signals(n) for n in S.NICHES]
     sig = pd.concat([f for f in frames if not f.empty], ignore_index=True) \
         if any(not f.empty for f in frames) else pd.DataFrame()
@@ -38,6 +58,12 @@ def buy_alerts(master: pd.DataFrame, include_dead: bool = False) -> pd.DataFrame
     live = sig[(sig["status"] == "open") & (sig["end_ts"] > now)].copy()
     if live.empty:
         return live
+
+    killed = human_killed()
+    if killed and "auction_id" in live:
+        live = live[~live["auction_id"].astype(str).isin(killed)]
+        if live.empty:
+            return live
 
     live["残り時間h"] = ((live["end_ts"] - now) / 3600).round(1)
     live["現在価格"] = live["last_price"].fillna(live["first_price"])
