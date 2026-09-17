@@ -18,6 +18,7 @@ import time
 import numpy as np
 import pandas as pd
 
+from . import mismatch as MM
 from . import sources as S
 from . import watchlist as W
 
@@ -84,6 +85,10 @@ def buy_alerts(master: pd.DataFrame, include_dead: bool = False) -> pd.DataFrame
 
     if not include_dead:
         live = live[live["等級"] != "C"]
+
+    # 付属品・部品の疑いに旗を立てる。**落とさん**——等級も件数も動かさずに、
+    # 画面で名指しするだけや(`core/mismatch.py`)。落とすかどうかは人が決める
+    live = MM.flag(live)
 
     live["_ord"] = live["等級"].map(W.GRADE_ORDER)
     return live.sort_values(["_ord", "残り時間h"], ascending=[True, True])

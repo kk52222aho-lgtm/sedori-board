@@ -25,6 +25,7 @@ from core import capital as CP
 from core import crossmarket as CM
 from core import inspect_live as IL
 from core import lanes as LN
+from core import mismatch as MM
 from core import sources as S
 from core import watchlist as W
 
@@ -48,7 +49,7 @@ from core import watchlist as W
 #
 # 並べ替えの順番は依存の浅い順や。`sources` を先に貼り直さんと、
 # 後続がまだ古い定数を掴んだまま再実行される。
-_CORE_ORDER = ("core.sources", "core.audit_gate", "core.buylist",
+_CORE_ORDER = ("core.sources", "core.audit_gate", "core.mismatch", "core.buylist",
                "core.crossmarket", "core.capital", "core.lanes",
                "core.watchlist", "core.alerts", "core.inspect_live")
 
@@ -252,15 +253,35 @@ with T["🛒 いま買える"]:
             + "。原因は**同じ型番でも面によって値段が違う**こと"
             "(`HN-65N4` はラクマ¥39,800 vs フリマ¥22,000 = 1.81倍)。"
             "**買い線を割っとっても、他の面にもっと安い玉があったら買われん。**")
-        c_a, c_b = st.columns(2)
+        c_a, c_b, c_c = st.columns(3)
         only_live = c_a.checkbox("まだ買える玉だけ", value=True)
         only_lo = c_b.checkbox("**全面で最安の玉だけ**", value=True,
                                help="同じ型番が複数の面に出とるとき、"
                                     "実際に買われるのは最安の1つや")
+        hide_susp = c_c.checkbox("**付属品・部品の疑いを外す**", value=True,
+                                 help="ケース・充電器・ロジックボードが本体の"
+                                      "買取中央値と比べられとる行を畳む。"
+                                      "外せば理由つきで全部出る")
         view = live if only_live else bl
+        view = MM.flag(view)
+        n_susp = int((view["疑い"] != "").sum())
+        # 🚨 **畳むのは rank より先や。** 後ろでやると、付属品が「全面で最安」の
+        # 印を持ったまま消えて、**その型番の本物が1行も残らん**。
+        # 実測(2026-09-17)で Geekria のケースが wh1000xm5 の最安を取っとった
+        if hide_susp:
+            view = MM.drop_suspect(view)
         view = CM.rank(view)
         if only_lo:
             view = CM.only_cheapest(view)
+        if n_susp:
+            st.caption(
+                (f"⚠ **付属品・部品の疑いで {n_susp}件 畳んどる。**" if hide_susp
+                 else f"⚠ **付属品・部品の疑いが {n_susp}件 ある**(`疑い`列)。")
+                + " 工場の部品語はカメラ専用やから、工具・オーディオ・PCの帯は"
+                  "**充電器もケースもロジックボードも素通りする**。"
+                  "実測でこの日の純利上位2行が2行とも付属品やった。"
+                  "**旗を立てるだけで採点は変えとらん**——"
+                  "潰すのは工場の型番定義(match_re)側の仕事や。")
         show, skipped = BL.display(view)
         if skipped:
             # **落ちるかわりに名指しする。** 貼れんかった=列名の意味が
@@ -269,10 +290,16 @@ with T["🛒 いま買える"]:
                        "貼り先が埋まっとったので元の名前のまま出しとる。"
                        "**アプリを再起動したら直る**(古いモジュールが"
                        "プロセスに残っとる)。", icon="🧩")
-        cols = [c for c in ["純利", "いま", "相場", "市場", "最安か",
-                            "他面との差", "出とる面数", "型番", "商品",
-                            "状態", "出口基準", "申告",
-                            "判定", "売切", "リンク"] if c in show]
+        # 🚨 **「検品」と「疑い」を右端に置いとったら誰も見ん**(2026-09-17)。
+        # 15列あって、判定は13番目=横スクロールの向こうやった。買うか決める
+        # のに一番要る2列が画面の外に出とったら、表は「どれ買うんや」に
+        # 答えられん。金額のすぐ隣に置く。
+        cols = [c for c in ["疑い", "純利", "いま", "相場", "判定",
+                            "市場", "最安か", "他面との差", "出とる面数",
+                            "型番", "商品", "状態", "出口基準", "申告",
+                            "疑いの理由", "売切", "リンク"] if c in show]
+        if hide_susp:      # 畳んどるときは必ず空になる2列や。幅がもったいない
+            cols = [c for c in cols if c not in ("疑い", "疑いの理由")]
         st.dataframe(
             show[cols], hide_index=True, width="stretch", height=560,
             column_config={
@@ -289,6 +316,11 @@ with T["🛒 いま買える"]:
                 "申告": st.column_config.TextColumn(
                     "申告", help="面が持っとる出品者の申告(new/used10…)。"
                                  "「状態」はこれとタイトルから決めた判定や"),
+                "疑い": st.column_config.TextColumn(
+                    "疑い", help="付属品・部品が本体の買取中央値と比べられとる"
+                                 "疑い。理由は「疑いの理由」列。**採点は"
+                                 "変えとらん**——人手で本文を読んで決める"),
+                "疑いの理由": st.column_config.TextColumn("疑いの理由"),
                 "リンク": st.column_config.LinkColumn("開く", display_text="見る"),
             })
         if "scanned_at" in view:
@@ -882,7 +914,8 @@ with T["🔔 アラート"]:
             for _, r in live.iterrows():
                 aid = r["auction_id"]
                 v = verdicts.get(aid)
-                head = (f"{r['判定']}　**{r['商品']}**　"
+                susp = f"{r['疑い']}　" if r.get("疑い") else ""
+                head = (f"{susp}{r['判定']}　**{r['商品']}**　"
                         f"純利 **{yen(r['想定純利'])}**　"
                         f"現在 {yen(r['現在価格'])} / 上限 {yen(r['max_bid'])}　"
                         f"残 {r['残り時間h']:.1f}h")
@@ -894,6 +927,11 @@ with T["🔔 アラート"]:
                 with st.container(border=True):
                     st.markdown(head)
                     st.caption(f"{r['title'][:110]}")
+                    if r.get("疑いの理由"):
+                        st.warning(f"**{r['疑いの理由']}**。"
+                                   "付属品や部品が本体の買取と比べられとると、"
+                                   "純利はいくらでもデカく見える。"
+                                   "**実物ページを読むまで買わん**", icon="⚠️")
                     cc1, cc2, cc3 = st.columns([1, 1, 4])
                     cc1.link_button("ヤフオクで開く", r["url"])
                     if cc2.button("本文を検品", key=f"insp_{aid}"):
