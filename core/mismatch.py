@@ -61,7 +61,7 @@ ACCESSORY_RE = re.compile(
 )
 
 # 本体やと分かる語・同梱の言い回し。これがあれば付属品語は無視する
-BODY_HINT_RE = re.compile(r"本体|別売|付属|付き|付き|込み|セット|同梱|とセット")
+BODY_HINT_RE = re.compile(r"本体|別売|付属|付き|込み|セット|同梱")
 
 # family から型番トークンを取る(数字を含む最後の区切り)。
 # `p_tools_wh36dd`→wh36dd / `p_audio_wh1000xm5`→wh1000xm5 / `d850`→d850
