@@ -207,12 +207,116 @@ def _mtime(p: Path) -> pd.Timestamp:
             .tz_convert("Asia/Tokyo").tz_localize(None))
 
 
+def _now_jst() -> pd.Timestamp:
+    """**盤の時刻は全部JSTや。** 「今」もJSTで取らんと鮮度が9時間ズレる。
+
+    🚨 2026-09-21。`_mtime` はわざわざ Asia/Tokyo に直してから tz を落としとる
+    (= 中の時刻は全部JSTの naive)のに、比べる「今」だけ `Timestamp.now()` =
+    **走っとる機械のローカル時刻**やった。作者のWindowsはJSTやから気付かん。
+    streamlit.app のコンテナはUTCやから、そこでだけ **9時間若く**出る。
+    スナップの「作成」も工場のWindowsが書いたJSTや。比べる相手を揃える。
+    """
+    return pd.Timestamp.now(tz="Asia/Tokyo").tz_localize(None)
+
+
 def _human(hours: float | None) -> str:
     if hours is None:
         return "—"
     if hours < 48:
         return f"{hours:.1f}時間"
     return f"{hours / 24:.1f}日"
+
+
+def _unhuman(text) -> float | None:
+    """`_human` の逆。スナップの「周期」列を時間に戻す。"""
+    t = str(text).strip()
+    try:
+        if t.endswith("時間"):
+            return float(t[:-2])
+        if t.endswith("日"):
+            return float(t[:-1]) * 24
+    except ValueError:
+        pass
+    return None
+
+
+def _state(age_h: float | None, 周期h: float | None) -> str:
+    """周期の門。**ここ1本にまとめとかんと、ローカルとクラウドで判定がズレる。**"""
+    if age_h is None:
+        return "🚨 欠損"
+    if 周期h and age_h > 周期h * FRESH_DEAD:
+        return "🚨 停止"
+    if 周期h and age_h > 周期h * FRESH_LATE:
+        return "⏳ 遅延"
+    return "生存"
+
+
+def snap_age_h() -> float | None:
+    """**断面そのものが何時間前のもんか。** これだけは凍らせたらあかん。
+
+    `meta.json` の「作成」は export した実時刻や。ここを今と比べる限り、
+    盤が何日前の写真を出しとるかは必ず分かる。
+    """
+    made = snap_meta().get("作成")
+    if not made:
+        return None
+    try:
+        return (_now_jst() - pd.Timestamp(str(made))).total_seconds() / 3600
+    except (ValueError, TypeError):
+        return None
+
+
+def _freshness_cloud() -> pd.DataFrame:
+    """クラウドの鮮度。**スナップの「経過」をそのまま出したら嘘になる。**
+
+    🚨 2026-09-21に踏んだ。クラウドは `snap("freshness")` を返しとっただけで、
+    あれは **export した瞬間の鮮度を撮った写真**や。写真の中では工場台帳は
+    「経過 0.2時間・生存」やが、その写真自体が **80時間前**のもんやった。
+    つまり **export が止まった瞬間から、鮮度の門は永久に「生存」と言い続ける。**
+
+    2026-09-08に「在るか やのうて 止まっとらんか を測る」と書いて `p.exists()`
+    を捨てたのと**同じ穴**や。あのとき直したのはローカルの経路だけで、
+    クラウドは写真を出す作りのまま残っとった。盤を見とるのはクラウドの方や。
+
+    直し方は単純で、**「最終更新」は実時刻やからこっちで測り直せる**。
+    周期も文字列から戻せる。依存の門(入力より古い)だけは入力がクラウドに
+    無いので測り直せんから、写真の判定をそのまま残す。
+
+    あわせて **断面そのものの行**を先頭に足す。どのデータ源が古いか以前に、
+    「この盤は何時間前の写真か」が一番効く一行やから。
+    """
+    d = snap("freshness")
+    now = _now_jst()
+    if not d.empty and "最終更新" in d:
+        d = d.copy()
+        upd = pd.to_datetime(d["最終更新"], errors="coerce")
+        age = (now - upd).dt.total_seconds() / 3600
+        周期 = (d["周期"].map(_unhuman) if "周期" in d
+                else pd.Series([None] * len(d), index=d.index))
+        frozen = d.get("状態", "").astype(str)
+        # 依存の門(入力より古い)は入力がクラウドに無いから測り直せん。写真を残す
+        keep = frozen.str.contains("入力より")
+        d["経過"] = [("—" if pd.isna(a) else _human(float(a))) for a in age]
+        d["状態"] = [
+            f if k else _state(None if pd.isna(a) else float(a),
+                               None if pd.isna(c) else float(c))
+            for f, k, a, c in zip(frozen, keep, age, 周期)
+        ]
+    # 断面そのもの。**これだけは凍らん**(meta.json の作成時刻 vs いま)
+    snap_age = snap_age_h()
+    made = snap_meta().get("作成", "—")
+    head = pd.DataFrame([{
+        "データ源": "盤の断面(export_snapshot)",
+        "パス": str(SNAP / "meta.json"),
+        "最終更新": str(made)[:16].replace("T", " "),
+        "経過": _human(snap_age),
+        "周期": _human(24.0),
+        "状態": _state(snap_age, 24.0),
+        "土台": True,
+        "備考": "**盤の数字は全部この時刻のもん**。古い間は"
+                "「いま買える」も「いま出とる買い」も過去の話や",
+    }])
+    return pd.concat([head, d], ignore_index=True) if not d.empty else head
 
 
 def freshness() -> pd.DataFrame:
@@ -222,21 +326,14 @@ def freshness() -> pd.DataFrame:
     状態は 生存 / ⏳遅延 / 🚨停止 / 🚨欠損 / 🚨入力より古い のいずれか。
     """
     if CLOUD:
-        return snap("freshness")
+        return _freshness_cloud()
     rows = []
-    now = pd.Timestamp.now()
+    now = _now_jst()
 
     def add(name, path, note="", 周期h=None, 土台=False, 入力=None):
         p = Path(path)
         age = _age_h(p, now)
-        if age is None:
-            state = "🚨 欠損"
-        elif 周期h and age > 周期h * FRESH_DEAD:
-            state = "🚨 停止"
-        elif 周期h and age > 周期h * FRESH_LATE:
-            state = "⏳ 遅延"
-        else:
-            state = "生存"
+        state = _state(age, 周期h)
         # 依存の門。定期実行が無い派生物はここでしか捕まらん。
         # 🚨 **猶予が要る。** 猶予ゼロで入れたら、落札を1機種だけ追い足した
         # 数分後に「入力より0日古い」で赤が出た(2026-09-08に実際に踏んだ)。
