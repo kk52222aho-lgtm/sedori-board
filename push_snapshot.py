@@ -32,7 +32,11 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-SNAP_DIR = "data/snapshot"
+# 🚨 **`export_snapshot.py` が書くのは2箇所や。** 初版は `data/snapshot` しか
+# commit せんかったんで、判定器(`core/vendor/verify_body.py` ほか)を
+# souba-league で直しても**クラウドだけ古い判定器で採点し続ける**。
+# 盤の等級はこの3本で付くんやから、片方だけ送ったら数字の出所がズレる。
+OUT = ["data/snapshot", "core/vendor"]
 
 
 def run(args: list[str], **kw) -> subprocess.CompletedProcess:
@@ -74,14 +78,14 @@ def main() -> int:
 
     # --- 1. 先に pull ---------------------------------------------------
     step(1, "先に pull する")
-    dirty = git("status", "--porcelain", "--", SNAP_DIR).stdout.strip()
+    dirty = git("status", "--porcelain", "--", *OUT).stdout.strip()
     other = [ln for ln in git("status", "--porcelain").stdout.splitlines()
-             if ln[3:] and not ln[3:].startswith(SNAP_DIR)]
+             if ln[3:] and not any(ln[3:].startswith(o) for o in OUT)]
     if other:
         say("⚠ snapshot 以外に未コミットの変更がある:")
         for ln in other[:10]:
             say("    " + ln)
-        say("  そのまま進む(このスクリプトは data/snapshot しか commit せん)")
+        say("  そのまま進む(このスクリプトは生成物しか commit せん)")
     r = git("pull", "--ff-only", "origin", "master")
     say(r.stdout.strip() or "(変化なし)")
     if r.returncode:
@@ -90,7 +94,7 @@ def main() -> int:
             "か data/snapshot に未コミットの変更がある。")
         if dirty:
             say(f"   data/snapshot に未コミットの変更あり:\n     {dirty}")
-            say("   捨ててええなら: git checkout -- data/snapshot")
+            say("   捨ててええなら: git checkout -- " + " ".join(OUT))
         return 1
 
     # --- 2. export ------------------------------------------------------
@@ -121,7 +125,7 @@ def main() -> int:
 
     # --- 4. commit & push -----------------------------------------------
     step(4, "commit して push")
-    git("add", "--", SNAP_DIR)
+    git("add", "--", *OUT)
     if not git("diff", "--cached", "--stat").stdout.strip():
         say("変わっとらんので commit せん(工場も止まっとるんちゃうか)。")
         return 0
