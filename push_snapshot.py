@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -58,7 +59,13 @@ def main() -> int:
     say(f"  {ROOT}")
 
     # --- 0. master に居るか ---------------------------------------------
-    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    head = git("rev-parse", "--abbrev-ref", "HEAD")
+    if head.returncode:
+        say("\n🚨 git リポジトリとして読めん。")
+        say(f"   {head.stdout.strip()}")
+        say("   このファイルは sedori-board の中に置いて使うもんや。")
+        return 1
+    branch = head.stdout.strip()
     if branch != "master":
         say(f"\n🚨 いま `{branch}` に居る。**master やないと動かさん。**")
         say("   盤が見とるのは master や。ここで master を引っ張り込んだら"
@@ -131,7 +138,6 @@ def main() -> int:
             break
         wait = 2 ** (i + 1)
         say(f"⚠ push が失敗。{wait}秒待って{i + 2}回目…")
-        import time
         time.sleep(wait)
     else:
         say("🚨 push が4回とも通らんかった。回線か認証を見る。")

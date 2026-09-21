@@ -229,6 +229,18 @@ python src/verify_body.py --candidates data/camera/candidates.csv \
 `data/snapshot/` に落とし、クラウドのアプリはそこしか読まん**(合計190KB程度)。
 
 ```
+run_snapshot.bat              # ← 普段はこれ1個でええ
+```
+
+`run_snapshot.bat`(中身は `push_snapshot.py`)が pull → export → 鮮度の確認 →
+commit → push まで通しでやる。**3を飛ばしたらあかんのがミソ**で、export は
+souba-league が今持っとるもんを写すだけやから、**工場が止まっとったら古い数字を
+そのまま写す**。写した直後に何が死んどるか名指しする(2026-09-21に、盤が
+89時間前の写真を出しとるのに鮮度の門が0件やった件)。
+
+手でやるなら:
+
+```
 python export_snapshot.py     # ← push する前に必ず1回
 git add -A && git commit -m "snapshot YYYY-MM-DD" && git push
 ```
