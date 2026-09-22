@@ -73,11 +73,14 @@ def main():
                 "maker": re.compile(r["maker_re"], re.I)
                          if r.get("maker_re") else None,
                 "buyback_a": int(r["buyback_a"]),
+                # キタムラの価格保証フラグ。"0" = 実物再査定で減額されうる
+                "guarantee": r.get("buyback_guarantee", ""),
                 # 部品語がその機種の**商品そのもの**やったら撃たんための材料
                 "product": (r.get("master_title") or "") + " " + (r.get("query") or ""),
             }
 
     n_seen = 0
+    mpx = defaultdict(list)   # 型番ごとの「門を通った落札」の値段
     matched = 0
     liq = defaultdict(int)
     candidates = []
@@ -122,6 +125,7 @@ def main():
                 continue
             matched += 1
             price = int(float(r["price"]))
+            mpx[fam].append(price)     # 保証の門に要る(下の GUARANTEE_CEIL)
             bb = spec["buyback_a"]
             if price < PRICE_FLOOR * bb:
                 continue
@@ -134,6 +138,45 @@ def main():
                     "end_time": r["end_time"], "bids": r["bid_count"],
                     "title": title, "auction_id": r["auction_id"],
                 })
+
+    # 🚨 **キタムラの値も34%は「価格保証なし」やった**(2026-09-22)。
+    # フジヤを外した時に「キタムラは保証付きやから」と書いたが、
+    # **キタムラの表そのものに `price_guarantee_flg` が有って 12,632/36,928 が 0**や。
+    # 無保証 = 実物再査定で減額されうる = フジヤと同じ性質の値や。
+    #
+    # 等級が付いとる76型番で「買取 ÷ 落札中央」を保証の有無で比べた:
+    #
+    #     無保証(21本)   中央 0.882   **買取>中央が 7/21 = 33%**
+    #     保証あり(55本) 中央 0.805   買取>中央が 4/55 =  7%   → Fisher p=0.0079
+    #
+    # **保証付きの値は 1.06倍 を一度も超えとらん**(55本の最大)。
+    # 無保証でそれを超えとる5本は、保証付きの母集団がどこにも見せん形や。
+    # = 「店が市場より高う買う」いう主張が、減額されうる値でだけ起きとる。
+    #
+    # せやから **無保証 かつ 買取 > 落札中央×1.06 の型番は出口として使わん**。
+    # 閾値1.06は**保証付き母集団の実測上限**で、こっちで発明した数字やない。
+    # 買取が中央を下回っとる無保証の型番は触らん(保守側に出とるだけやから)。
+    GUARANTEE_CEIL = 1.06
+    dropped = []
+    for fam in sorted({c["family"] for c in candidates}):
+        spec = fams[fam]
+        if str(spec.get("guarantee", "")) != "0":
+            continue
+        px = mpx.get(fam) or []
+        if len(px) < 5:
+            continue
+        med = statistics.median(px)
+        if med > 0 and spec["buyback_a"] > med * GUARANTEE_CEIL:
+            dropped.append((fam, spec["buyback_a"], int(med),
+                            round(spec["buyback_a"] / med, 2)))
+    if dropped:
+        drop_f = {d[0] for d in dropped}
+        n0 = len(candidates)
+        candidates = [c for c in candidates if c["family"] not in drop_f]
+        print(f"\n🚨 無保証やのに買取が落札中央の{GUARANTEE_CEIL}倍を超える型番を"
+              f"出口から外した({n0 - len(candidates)}件の候補が落ちた):")
+        for fam, bb, med, ratio in dropped:
+            print(f"   {fam:<16} 買取¥{bb:>8,} / 落札中央¥{med:>8,} = {ratio}倍")
 
     if candidates:
         rec = sum(c["buyback_a"] for c in candidates) / sum(
