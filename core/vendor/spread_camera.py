@@ -169,6 +169,33 @@ def main():
         if med > 0 and spec["buyback_a"] > med * GUARANTEE_CEIL:
             dropped.append((fam, spec["buyback_a"], int(med),
                             round(spec["buyback_a"] / med, 2)))
+    # 🚨 **判定を片側に置いたら、その日のうちに兄弟レーンが破った**(2026-09-22)。
+    # この門を入れた直後、`factory.py` が SEL18200LE に**買いシグナルを6件**
+    # 出しとった——等級側がその型番を⚫スプレッド無しに落とした後でや。
+    # 工場は `buyback_a` をそのまま出口に使うんで、こっちの判定を知らん。
+    # **落とした型番を書き出して、工場に読ませる。**(市場の中央値はここでしか
+    # 計算できんので、判定はここに置いたまま結果だけ渡す)
+    blocked = ROOT / "data" / "camera" / "exit_blocked.csv"
+    blocked.parent.mkdir(parents=True, exist_ok=True)
+    prev = {}
+    if blocked.exists():
+        with blocked.open(encoding="utf-8-sig", newline="") as f:
+            prev = {r["family"]: r for r in csv.DictReader(f)}
+    for fam, bb, med, ratio in dropped:
+        prev[fam] = {"family": fam, "buyback_a": bb, "落札中央": med,
+                     "倍": ratio, "理由": "無保証やのに買取が落札中央の"
+                                          f"{GUARANTEE_CEIL}倍超え",
+                     "更新": snapshot_date or ""}
+    # この走査で見た型番のうち、もう引っかからんもんは外す(永久に赤くせん)
+    seen_fams = {c["family"] for c in candidates} | {d[0] for d in dropped}
+    prev = {k: v for k, v in prev.items()
+            if k not in seen_fams or k in {d[0] for d in dropped}}
+    with blocked.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["family", "buyback_a", "落札中央",
+                                          "倍", "理由", "更新"])
+        w.writeheader()
+        w.writerows(prev.values())
+
     if dropped:
         drop_f = {d[0] for d in dropped}
         n0 = len(candidates)
