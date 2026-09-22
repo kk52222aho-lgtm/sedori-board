@@ -105,10 +105,37 @@ def test_周期の文字列を時間に戻せる():
     print("OK 周期のパース: 時間/日/欠損")
 
 
+def test_新しいのに空なら赤くする():
+    """**3枚目の門**(2026-09-23)。mtime は今朝やのに中身が0行、いう形。
+
+    `live_winners.csv` が 99行 → **0行**で書き直された朝、周期の門も依存の門も
+    「生存」と出した。盤は「いま買える玉 0」と静かに表示しただけやった。
+    走査が空で返ったんか本当に玉が無いんかは行数では割れんが、
+    **土台が0行いうのは、どっちにしても読み手に知らせなあかん。**
+    """
+    import tempfile
+    d = Path(tempfile.mkdtemp())
+    empty, full = d / "empty.csv", d / "full.csv"
+    empty.write_text("a,b\n", encoding="utf-8")              # 見出しだけ
+    full.write_text("a,b\n1,2\n", encoding="utf-8")
+    assert S._rows(empty) == 0 and S._rows(full) == 1
+    assert S._rows(d / "無い.csv") is None
+    print("OK 行数: 見出しだけ→0 / 1行→1 / 無いファイル→None")
+
+    real = S.freshness()
+    assert not real.empty
+    # 土台の源が全部 "生存" のときは 🚨新しいが空 は1本も出とらんはず
+    bad = real[real["状態"].astype(str).str.contains("新しいが空")]
+    for _, r in bad.iterrows():
+        assert S._rows(Path(r["パス"])) == 0, f"空やないのに空と出しとる: {r['データ源']}"
+    print(f"OK 実物: 「新しいが空」は {len(bad)}本(出とる分は本当に0行)")
+
+
 if __name__ == "__main__":
     test_今はJSTで取る()
     test_周期の文字列を時間に戻せる()
     test_クラウドの鮮度は測り直す()
     test_断面そのものが行として出る()
     test_古い断面は先頭で赤くなる()
+    test_新しいのに空なら赤くする()
     print("\n検定ぜんぶ通った")

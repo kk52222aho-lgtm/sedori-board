@@ -196,6 +196,22 @@ FRESH_LATE, FRESH_DEAD = 1.5, 3.0     # 周期の何倍で遅延/停止とみな
 DEP_GRACE_H = 24.0                    # 依存の門の猶予。これ未満の前後は無視する
 
 
+def _rows(p: Path) -> int | None:
+    """CSVの行数(見出しを除く)。読めんかったら None。
+
+    **中身を数えるんはここだけ**にする。鮮度の門が「新しいのに空」を
+    捕まえるために要る。大きい表もあるんで行を数えるだけで中身は読まん。
+    """
+    try:
+        if p.suffix.lower() != ".csv":
+            return None
+        with p.open("rb") as f:
+            n = sum(1 for _ in f)
+        return max(n - 1, 0)
+    except OSError:
+        return None
+
+
 def _age_h(p: Path, now: pd.Timestamp) -> float | None:
     if not p.exists():
         return None
@@ -346,6 +362,15 @@ def freshness() -> pd.DataFrame:
                          - _mtime(p)).total_seconds() / 3600
                 if lag_h > DEP_GRACE_H:
                     state = f"🚨 入力より{_human(lag_h)}古い"
+        # 🚨 **3枚目の門: 新しいのに空**(2026-09-23)。
+        # `live_winners.csv` が 99行 → **0行**で書き直された朝、mtime は
+        # 今朝やから門は「生存」と出した。盤は「いま買える玉 0」と静かに表示した。
+        # 走査が空で返ったんか、本当に買える玉が無いんかは**行数では割れん**が、
+        # **土台が0行いうのは、どっちにしても読み手に知らせなあかん**
+        # (「空」と「未測」を同じ入れ物に入れたらキューが進まんのと同じ線)。
+        # 土台だけに当てる——sell_hits や moves は0が普通やから。
+        if 土台 and state == "生存" and p.exists() and _rows(p) == 0:
+            state = "🚨 新しいが空"
         rows.append({
             "データ源": name,
             "パス": str(p),
