@@ -20,10 +20,22 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+# 🚨 **この道具は「止まっとる源が有る時だけ」🚨 を印字する**(2026-09-22)。
+# せやから手で回しとる間は一度も落ちんかった。常駐(publish_board.bat)は
+# cp932 のコンソールで回るんで、**最初に土台が止まった朝に
+# `UnicodeEncodeError` で落ちて、断面ごと書かれんかった**。
+# = **警告を出そうとして、警告の出どころごと殺した**形や。
+# 珍しい枝に非ASCIIを置くなら、出す前に出口を直す。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:                                          # noqa: BLE001
+    pass
 
 from core import alerts as A
 from core import lanes as LN
