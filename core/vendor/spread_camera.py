@@ -73,6 +73,8 @@ def main():
                 "maker": re.compile(r["maker_re"], re.I)
                          if r.get("maker_re") else None,
                 "buyback_a": int(r["buyback_a"]),
+                # 部品語がその機種の**商品そのもの**やったら撃たんための材料
+                "product": (r.get("master_title") or "") + " " + (r.get("query") or ""),
             }
 
     n_seen = 0
@@ -96,9 +98,19 @@ def main():
             # 通っとって、**これ1件だけで XA20 が🟢実弾GOに化けとった**。
             # FOR_RE 丸ごとやのうて FOR_MODEL_RE だけ借りる——`専用` は
             # 「[専用] SONY FX30」= 取り置き出品の本体に誤爆するから(実測)。
-            if PARTS_RE.search(mt) or JUNK_RE.search(mt) or IB.FOR_MODEL_RE.search(mt):
+            # 🚨 部品語は「〜付き/同梱」なら本体や。`jp_part` が持っとる仕掛けを
+# 部品語にも貸す。実測: 楽器で門を全部通った後 **17行が本体として戻り、
+# 17/17 が正しかった**。カメラは戻る行1,800で無作為20件が20件とも本体。
+            if (IB.parts_verdict(mt, PARTS_RE, spec.get("product", ""))
+                    or JUNK_RE.search(mt) or IB.FOR_MODEL_RE.search(mt)):
                 continue
             if not spec["match"].search(mt):
+                continue
+            # 🚨 **等級側も同じ門を通す。** `jp_compat` はフリマと工場には
+            # 通っとったが、**等級を付ける spread_* には通っとらんかった**。
+            # 「ケース付＊SONY FDA-EV1MK 電子ビューファインダー RX1 RX100M2
+            #   DSC-HX60Vなど」が候補に座る(2026-09-22に実測)
+            if IB.jp_compat(mt, spec["match"]):
                 continue
             if spec["exclude"] and spec["exclude"].search(mt):
                 continue
