@@ -179,6 +179,14 @@ def main() -> int:
         "いま買える玉": int((W.live_winners().get("いま買える",
                                                 pd.Series(dtype=str))
                            .astype(str) == "○").sum()),
+        # 🚨 **値段だけ通った数を見出しに出したらまた盛る**(2026-09-23)。
+        # 上の「いま買える玉」は**値段の話だけ**や(買い線の内側)。
+        # 実際に手を出せるんは 値段 × 質(勝ち語) × 欠陥なし を全部通った玉で、
+        # 今日はそれが **0件**やった(30件が買い線の内・うち21件は欠陥あり)。
+        # 名前がちごう2つの量を、両方出しとく。
+        "値段も質も通った玉": int(W.live_winners().get(
+            "段", pd.Series(dtype=str)).astype(str)
+            .str.contains("実弾GO|👍 買える").sum()),
     }
     (SNAP / "meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
