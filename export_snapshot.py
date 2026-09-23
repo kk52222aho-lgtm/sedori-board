@@ -173,7 +173,12 @@ def main() -> int:
         "fa朝リスト": fa_date,
         "型番数": int(len(master)),
         "実績サンプル": int(len(W.winners())),
-        "いま買える玉": int(len(W.live_winners())),
+        # 🚨 **「いま買える玉」は買える玉だけ数える**(2026-09-23)。
+        # 前は行数をそのまま出しとって、買い線を超えとる「監視」も
+        # 混ざっとった(70件のうち買えるんは30件)。
+        "いま買える玉": int((W.live_winners().get("いま買える",
+                                                pd.Series(dtype=str))
+                           .astype(str) == "○").sum()),
     }
     (SNAP / "meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")

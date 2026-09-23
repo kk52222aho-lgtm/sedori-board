@@ -327,9 +327,24 @@ def live_winners() -> pd.DataFrame:
     human = S.read_csv(S.DATA / "human_verdicts.csv", dtype={"auction_id": str})
     if not human.empty:
         d = d[~d["auction_id"].isin(set(human[human["verdict"] == "kill"]["auction_id"]))]
-    d["段"] = np.where(d["勝ち語"] >= 5, "🏆 実弾GO",
-                       np.where(d["勝ち語"] >= 4, "👍 買える", "🤏 見送り"))
-    return d.sort_values(["勝ち語", "想定純利"], ascending=False)
+    # 🚨 **札が「買えるか」を見とらんかった**(2026-09-23)。
+    # 段は勝ち語の点数だけで付いとって、**買い線を超えとる玉にも
+    # 「🏆 実弾GO」「👍 買える」が貼られとった**。実測で70件中10件。
+    # そのうち5件は想定純利がマイナスで、最悪は **−¥16,400**や。
+    #
+    # このファイルは2026-08-08に「盤の買い物リストの玉が全部2〜6月に
+    # 終わっとった。**看板に偽りがあった**」いうて書かれたもんやのに、
+    # 看板の付け方が同じ穴を開けとった。
+    #
+    # **札は2つの条件の掛け算や**: 買い線の内側(値段) × 勝ち語(質)。
+    # 片方だけで貼ったらあかん。
+    buyable = d["いま買える"].astype(str).eq("○")
+    d["段"] = np.where(~buyable, "👀 監視(買い線の外)",
+                       np.where(d["勝ち語"] >= 5, "🏆 実弾GO",
+                                np.where(d["勝ち語"] >= 4, "👍 買える",
+                                         "🤏 見送り")))
+    return d.sort_values(["いま買える", "勝ち語", "想定純利"],
+                         ascending=[True, False, False])
 
 
 def winners() -> pd.DataFrame:
