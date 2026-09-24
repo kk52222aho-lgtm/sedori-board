@@ -321,7 +321,7 @@ def live_winners() -> pd.DataFrame:
                          dtype={"auction_id": str}))
     if d.empty:
         return d
-    for c in ("現在価格", "max_bid", "想定純利", "勝ち語", "残り時間h"):
+    for c in ("現在価格", "max_bid", "想定純利", "勝ち語", "残り時間h", "入札数"):
         if c in d:
             d[c] = pd.to_numeric(d[c], errors="coerce")
     human = S.read_csv(S.DATA / "human_verdicts.csv", dtype={"auction_id": str})
@@ -349,6 +349,24 @@ def live_winners() -> pd.DataFrame:
     #
     # **項を1つ足して満足したらあかん。作った側が何で絞っとるかを読んで
     #   全部数える。** ここは3つや: 値段(買い線の内) × 質(勝ち語) × 欠陥なし。
+    # 🚨 **4項目めが見えた(2026-09-24)。やが門にはせん。**
+    # ヤフオク→ヤフオクの前向き台帳22件が決着して、勝ち負けをほぼ決めとるんが
+    # 入札数やと出た:
+    #
+    #     入札ゼロで終了   14件(64%)  機械検品 keep 0/14
+    #     入札あり・負け    6件(27%)  終値は中央値の 0.81〜0.99倍
+    #     入札あり・勝ち    2件( 9%)  終値 = 開始価格のまま
+    #
+    # うちの上限は中央値の 0.66〜0.75倍。**競りが付いた瞬間に隙間が無い**
+    # (6敗のうち上限の1.1倍以内は1件だけ)。
+    #
+    # **せやが n=8 やから段には入れん。** ここで切ったら「入札が付いた玉は
+    # 本当に取れんのか」が二度と測れんくなる。旗だけ立てて、前向き台帳の
+    # bids_seen が溜まってから決める。
+    # ( [[feedback_in_sample_rule_scoring]] / 「規則を作ったデータで採点するな」)
+    if "入札数" in d:
+        d["競り"] = np.where(d["入札数"].isna(), "—",
+                             np.where(d["入札数"] > 0, "🔥 競り中", "🤫 入札なし"))
     buyable = d["いま買える"].astype(str).eq("○")
     clean = d["欠陥"].isna() | d["欠陥"].astype(str).str.strip().eq("")
     d["段"] = np.where(~buyable, "👀 監視(買い線の外)",
