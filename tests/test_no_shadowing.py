@@ -46,9 +46,21 @@ def shadowed(path: Path) -> list[tuple[int, str, int]]:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for a in node.names:
                 imported.add((a.asname or a.name).split(".")[0])
+    # 🚨 **`except` の中の代入は数えん。**
+    #    `try: import verify_body as VB / except: VB = None` は
+    #    「読めん環境でもサイトは開く」ための常套句で、上書きやない。
+    #    初版がこれを2件鳴らして、**門が狼少年になりかけた**
+    #    ([[insight_a_gate_that_cries_wolf]]: 誤検知1本で表ごと流し読みになる)。
+    skip = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            for sub in ast.walk(node):
+                skip.add(id(sub))
     out = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            continue
+        if id(node) in skip:
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for t in targets:
@@ -92,7 +104,18 @@ def test_見つける力が在るか():
         p.write_text(src, encoding="utf-8")
         got = shadowed(p)
     assert got and got[0][1] == "yen", got
-    print(f"OK 受け入れ試験: 実際に落ちた形({got[0][1]!r} を{got[0][0]}行目で上書き)を捕まえた")
+    # **鳴らしたらあかん形**も同時に確かめる。片方だけやと狼少年になる
+    ok = ("try:" + chr(10) + ""
+          "    import os as VB" + chr(10) + ""
+          "except Exception:" + chr(10) + ""
+          "    VB = None" + chr(10) + "")
+    with tempfile.TemporaryDirectory() as d:
+        p2 = Path(d) / "ok.py"
+        p2.write_text(ok, encoding="utf-8")
+        quiet = shadowed(p2)
+    assert not quiet, f"except の中の代入で鳴っとる: {quiet}"
+    print(f"OK 受け入れ試験: 落ちた形({got[0][1]!r}を{got[0][0]}行目)は捕まえて、"
+          "except の中の `VB = None` は鳴らさん")
 
 
 if __name__ == "__main__":
