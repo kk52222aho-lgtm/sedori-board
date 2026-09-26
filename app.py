@@ -511,10 +511,17 @@ with T["🎯 勝てる商品"]:
                  | (view.get("単発", False) == True)]  # noqa: E712
     _thin = _thin[_thin["等級"] == "A"] if "等級" in _thin else _thin
     if not _thin.empty:
-        yen = int(pd.to_numeric(_thin["期待粗利180d"], errors="coerce").sum())
+        # 🚨 **`yen` は143行目の整形関数や。ここで int を代入したら
+        #    587行目の `yen(real_yen)` が TypeError で落ちる。**
+        #    2026-09-22にこの旗を足した時に踏んで、**旗が立った日だけ
+        #    サイトが落ちる**形で4日走っとった(_thin.empty やと通る)。
+        #    export_snapshot が警告の行だけ cp932 で死んどったんと同じ形——
+        #    **警告が引き金になって、警告を運ぶ道が壊れる。**
+        _thin_yen = int(pd.to_numeric(_thin["期待粗利180d"],
+                                      errors="coerce").sum())
         st.warning(
             "**競り無し/単発: " + " / ".join(_thin["商品"].astype(str)) + "**。"
-            f"実弾GOのうち **¥{yen:,}/180日 がこの形**で立っとる。"
+            f"実弾GOのうち **¥{_thin_yen:,}/180日 がこの形**で立っとる。"
             "競りが付かんかった安値は「安う買えた」やのうて"
             "**相手が情報を持っとる**合図や(2026-08-07に紙上勝ち6件を"
             "検品して 0/6)。実物を読まんまま実弾を入れんこと。", icon="🥶")
