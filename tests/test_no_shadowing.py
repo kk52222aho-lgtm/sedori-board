@@ -56,11 +56,25 @@ def shadowed(path: Path) -> list[tuple[int, str, int]]:
         if isinstance(node, ast.ExceptHandler):
             for sub in ast.walk(node):
                 skip.add(id(sub))
+    # 🚨 **モジュールの階層の代入だけ数える。**
+    #    関数の中の `species = ...` は局所変数やから無害やし、
+    #    クラス本体の `species: str`(dataclass/BaseModel の注釈)も別の名前空間や。
+    #    C:/dev の .py 680本に当てたら、この2つで**誤検知が2件**出た
+    #    (aichi-fishing の `class CatchIn(BaseModel): species: str` と
+    #     `@dataclass` の `moon_age: float`)。
+    #    落ちた本物(`yen = int(...)`)は `if` の中やが**モジュールの階層**や——
+    #    `if`/`for`/`with`/`try` の入れ子は数える、`def`/`class` の中は数えん。
+    inner = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            for sub in ast.walk(node):
+                if sub is not node:
+                    inner.add(id(sub))
     out = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
             continue
-        if id(node) in skip:
+        if id(node) in skip or id(node) in inner:
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for t in targets:
@@ -114,6 +128,21 @@ def test_見つける力が在るか():
         p2.write_text(ok, encoding="utf-8")
         quiet = shadowed(p2)
     assert not quiet, f"except の中の代入で鳴っとる: {quiet}"
+    # クラス本体の注釈と、関数の中の局所変数も鳴らしたらあかん
+    ok2 = ("import dataclasses" + chr(10)
+           + "@dataclasses.dataclass" + chr(10)
+           + "class C:" + chr(10)
+           + "    moon_age: float" + chr(10)
+           + "def moon_age(d):" + chr(10)
+           + "    yen = 1" + chr(10)
+           + "    return yen" + chr(10)
+           + "def yen(v):" + chr(10)
+           + "    return v" + chr(10))
+    with tempfile.TemporaryDirectory() as d:
+        p3 = Path(d) / "ok2.py"
+        p3.write_text(ok2, encoding="utf-8")
+        quiet2 = shadowed(p3)
+    assert not quiet2, f"クラス本体の注釈か関数の局所変数で鳴っとる: {quiet2}"
     print(f"OK 受け入れ試験: 落ちた形({got[0][1]!r}を{got[0][0]}行目)は捕まえて、"
           "except の中の `VB = None` は鳴らさん")
 
