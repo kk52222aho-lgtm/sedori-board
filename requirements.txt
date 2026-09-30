@@ -1,4 +1,9 @@
-streamlit>=1.30
-pandas>=2.0
-numpy>=1.24
-requests>=2.31
+# 🚨 **上限を書く。**下限だけやと、クラウドが作り直した日に
+#    メジャー版が上がって黙って壊れる。ローカルで通っとる版:
+#      streamlit 1.58 / pandas 2.2.3 / numpy 1.26.4
+#    台帳サイトは実際に use_container_width が消える版に当たりかけた
+#    (2026-09-29、警告が「removed after 2025-12-31」で9ヶ月過ぎとった)。
+streamlit>=1.44,<2
+pandas>=2.0,<3
+numpy>=1.24,<3
+requests>=2.31,<3
