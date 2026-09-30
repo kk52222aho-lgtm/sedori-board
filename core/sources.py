@@ -6,6 +6,7 @@ sedori-board は**計算せん**。souba-league が吐いた台帳・検品結�
 列名の正規化だけをここに集める。
 """
 from __future__ import annotations
+import os
 
 import re
 from pathlib import Path
@@ -22,7 +23,14 @@ SNAP = DATA / "snapshot"
 
 # streamlit.app には souba-league が無い。そこでは **export_snapshot.py が
 # 書き出した計算済みCSVだけ**を読む。生データ(買取表1枚6MB・落札16MB)は積まん。
-CLOUD = not SOUBA.exists()
+# 🚨 **環境変数で強制できるようにする**(2026-09-30)。
+#    `app.py` の `_refresh_core()` は起動時に **core を無条件で貼り直す**。
+#    せやから公開前の門が `S.CLOUD = True` を立てても、貼り直しで
+#    `not SOUBA.exists()` に戻って**ローカルの経路を試しとった**。
+#    門がクラウドの経路を一度も通っとらんかったいうことや——
+#    実際 `moves.csv` が空の日に KeyError で落ちたんを、門は通した。
+#    **貼り直しても消えん所に置く。**
+CLOUD = (os.environ.get("SEDORI_FORCE_CLOUD") == "1") or not SOUBA.exists()
 
 
 def snap(name: str, **kw):

@@ -1060,7 +1060,11 @@ with T["🔔 アラート"]:
             _, _, moves = get_moves()
             with st.expander(f"監視外も含めた全変動({len(moves)}件)"):
                 st.dataframe(
-                    moves[["向き", "商品", "旧", "新", "差額", "変化率"]].head(300),
+                    # 🚨 **在る列だけ引く。**差分が無い日は `moves` が
+                    #    空で来る。書く側(export_snapshot)は列を残すように
+                    #    直したが、**古い断面を読む日もある**んで両側で守る
+                    moves[[c for c in ["向き", "商品", "旧", "新", "差額",
+                                       "変化率"] if c in moves]].head(300),
                     hide_index=True, width="stretch")
 
         st.divider()
