@@ -95,14 +95,31 @@ def build_buylist() -> pd.DataFrame:
 
 
 
-# 🚨 **空でも列名は残す。**`pd.DataFrame().to_csv()` は**1バイトも書かん**ので、
-#    読み直したら列が0本の枠になる。盤は `moves[["向き","商品",...]]` で引くから
-#    **その日だけ KeyError でサイト全体が落ちる**(2026-09-30に実際に落ちた)。
-#    差分が無い日は普通に来る——「空」は事故やのうて**正常な測定結果**や
-#    ([[insight_zero_is_a_measurement]])。空と壊れとるを混ぜたらあかん。
-EMPTY_COLS = {
-    "moves": ["向き", "商品", "family", "判定", "旧", "新", "差額", "変化率", "含み"],
-}
+# 🚨 **列の並びを `schema.json` に控える**(2026-09-30)。
+#    `pd.DataFrame().to_csv()` は1バイトも書かんので、空の断面を読み直すと
+#    列が0本になる。盤は `master["等級"]` で引くから**その日だけ落ちる**。
+#    最初は読む側に手書きの列リストを置いたが、**次は ['根拠','生存率'] が
+#    足らんと言われた**——モグラ叩きや。
+#    **書く側が知っとることを書く側に書かせる。**1回で全断面に効く。
+
+
+SCHEMA = None
+
+
+def _remember_schema(name: str, cols: list) -> None:
+    """断面の列の並びを控える。**空の日に読む側が復元できるように。**"""
+    import json
+    global SCHEMA
+    p = SNAP / "schema.json"
+    if SCHEMA is None:
+        try:
+            SCHEMA = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:                               # noqa: BLE001
+            SCHEMA = {}
+    if cols:                       # **空の日に空で上書きせん**
+        SCHEMA[name] = cols
+        p.write_text(json.dumps(SCHEMA, ensure_ascii=False, indent=1),
+                     encoding="utf-8")
 
 
 def dump(name: str, df: pd.DataFrame) -> int:
@@ -116,6 +133,7 @@ def dump(name: str, df: pd.DataFrame) -> int:
     if df.empty and not list(df.columns) and name in EMPTY_COLS:
         df = pd.DataFrame(columns=EMPTY_COLS[name])
     df.to_csv(SNAP / f"{name}.csv", index=False, encoding="utf-8-sig")
+    _remember_schema(name, list(df.columns))
     kb = (SNAP / f"{name}.csv").stat().st_size / 1024
     print(f"  {name:<14} {len(df):>5} 行  {kb:>7.1f} KB")
     return len(df)

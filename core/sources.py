@@ -33,9 +33,39 @@ SNAP = DATA / "snapshot"
 CLOUD = (os.environ.get("SEDORI_FORCE_CLOUD") == "1") or not SOUBA.exists()
 
 
+_SCHEMA = None
+
+
+def _schema(name: str) -> list:
+    """`export_snapshot` が控えた列の並び。**空の日に復元するため。**"""
+    global _SCHEMA
+    if _SCHEMA is None:
+        import json
+        try:
+            _SCHEMA = json.loads((SNAP / "schema.json").read_text(encoding="utf-8"))
+        except Exception:                               # noqa: BLE001
+            _SCHEMA = {}
+    return _SCHEMA.get(name) or []
+
+
 def snap(name: str, **kw):
-    """スナップショットを読む。無ければ空。"""
-    return read_csv(SNAP / f"{name}.csv", **kw)
+    """スナップショットを読む。無ければ空。
+
+    🚨 **空でも列は返す**(2026-09-30)。`pd.DataFrame().to_csv()` は
+    1バイトも書かんので、差分が無い日の `moves.csv` を読むと列が0本になる。
+    盤は `moves[["向き",...]]` で引くから**その日だけサイト全体が落ちた**。
+    **「空」は事故やのうて測定結果**や([[insight_zero_is_a_measurement]])。
+
+    読む側に手書きの列リストを置いたら、次は別の列が足らんと言われた。
+    **書く側(`export_snapshot`)が `schema.json` に控えたもんを使う。**
+    """
+    df = read_csv(SNAP / f"{name}.csv", **kw)
+    cols = _schema(name)
+    if cols:
+        for c in cols:
+            if c not in df.columns:
+                df[c] = pd.NA
+    return df
 
 
 def snap_meta() -> dict:
