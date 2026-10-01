@@ -937,3 +937,35 @@ def profitable(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or "純利" not in df:
         return df
     return df[pd.to_numeric(df["純利"], errors="coerce").fillna(0) > 0]
+
+
+# ------------------------------------------------- 値段が形成されとらん型番
+NOPRICE_COLS = ["family", "niche", "落札n", "競りn", "言い値n", "混合の中央", "理由"]
+
+
+def unformed_build() -> pd.DataFrame:
+    """**盤に載らん型番のうち「測れん」側**。export_snapshot 専用。
+
+    souba-league の `flip_backtest2.py` が `data/flip/no_price.csv` に書く。
+    出口の中央値は**競り上がった落札だけ**から作る——入札1本で落ちた玉は
+    出品者の言い値で、1円スタートの捌ける率(97%)では取れん値やから
+    (2026-10-01、両側そろう314組で 競り側÷全体 = 0.967、Wilcoxon p=3.4e-34)。
+
+    🚨 **「儲からん」と「値段が形成されとらん」を同じ箱に入れたらあかん。**
+    前者は測って負けた型番、後者は**まだ測れてへん**型番や。混ぜると
+    キューが永久に進まん(0件と未測を分ける話と同じ)。
+    """
+    p = S.SOUBA / "data" / "flip" / "no_price.csv"
+    if not p.exists():
+        return pd.DataFrame(columns=NOPRICE_COLS)
+    return S.read_csv(p)
+
+
+def unformed() -> pd.DataFrame:
+    """画面が呼ぶ入口。クラウドはスナップショット、ローカルは生から。"""
+    if S.CLOUD:
+        d = S.snap("no_price")
+        if d is None:
+            return pd.DataFrame(columns=NOPRICE_COLS)
+        return d
+    return unformed_build()

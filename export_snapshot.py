@@ -171,6 +171,8 @@ def main() -> int:
     # 「どこで買ってどこで売るか」。**旗立ては画面側でやる**
     # (閾値をスライダーで動かすので、生の列を持たせたまま出す)
     dump("lanes", LN.build())
+    # 盤に載らん型番のうち「測れん」側。載らん理由を箱ごと分けて渡す
+    dump("no_price", LN.unformed_build())
     fresh = S.freshness()
     dump("freshness", fresh)
     # 🚨 **止まった源のまま publish しても、ログに何も残らんかった。**
