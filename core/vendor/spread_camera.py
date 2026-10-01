@@ -36,8 +36,12 @@ JUNK_RE = re.compile(
     # 2026-08-11のバックテストで「JUNK明記のLX100M2」が純利¥60,848の勝ち玉に
     # 化けとった。カタカナだけ見とったら半分しか止まらん。
     r"[Jj][Uu][Nn][Kk]|"
-    r"ジャンク|訳あり|訳アリ|ワケアリ|わけあり|不動|故障|難あり|難アリ|難有り|カビ|クモリ|くもり|曇り|"
-    r"バルサム|キズあり|動作未確認|部品取り|エラー|シャッター不良|"
+    r"ジャンク|訳あり|訳アリ|ワケアリ|わけあり|不動|故障|難あり|難アリ|難有り|"
+    # 🚨 2026-10-01: ここに裸で `カビ|クモリ|くもり|曇り|バルサム` が並んどって、
+    #    **「★超美品★ … カビ・クモリなし!」を31行撃墜しとった**(中央比1.13)。
+    #    判定は1か所に置いて借りる([[feedback_fix_the_sibling_lane]])
+    + IB.OPTICAL_JUNK + r"|"
+    r"キズあり|動作未確認|部品取り|エラー|シャッター不良|"
     # 「動作不良」は 不動 にも 故障 にも当たらんかった。2026-08-07に
     # 工場が「SONY α7III ILCE-7M3 本体（動作不良品）」を発火させて
     # 紙上WON(+¥12,300)に計上しとった穴。タイトルで自白しとるのに通した。
@@ -65,7 +69,9 @@ def main():
     with open(args.models, encoding="utf-8-sig", newline="") as f:
         for r in csv.DictReader(f):
             fams[r["family"]] = {
-                "match": re.compile(r["match_re"], re.I),
+                # 🚨 **左の見張りも借りる**(2026-10-01)。ここだけ素でcompileしとったら
+                #    兄弟レーンに同じ穴が残る([[feedback_fix_the_sibling_lane]])
+                "match": re.compile(IB.left_edge(r["match_re"]), re.I),
                 "exclude": re.compile(r["exclude_re"], re.I)
                            if r["exclude_re"] else None,
                 "require": re.compile(r["require_re"], re.I)
