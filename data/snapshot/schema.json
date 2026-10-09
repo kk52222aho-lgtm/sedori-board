@@ -119,7 +119,9 @@
   "end_time",
   "title",
   "url",
-  "scanned_at"
+  "scanned_at",
+  "競り",
+  "段"
  ],
  "master": [
   "family",
