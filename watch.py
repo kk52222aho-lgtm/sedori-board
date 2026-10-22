@@ -36,7 +36,12 @@ def _webhook() -> str | None:
     env = Path(r"C:\dev\.env")
     if not env.exists():
         return None
-    for line in env.read_text(encoding="utf-8", errors="replace").splitlines():
+    lines = env.read_text(encoding="utf-8", errors="replace").splitlines()
+    # kk 2026-10-22「今は株だけでいい」。鍵は株と共有なんで消さず、.env の
+    # SEDORI_DISCORD=off で、せどりの通知だけ黙らせる(戻すには1行消す)
+    if "SEDORI_DISCORD=off" in lines:
+        return None
+    for line in lines:
         if line.startswith("FACTORY_WEBHOOK_URL="):
             return line.split("=", 1)[1].strip().strip('"')
     return None
