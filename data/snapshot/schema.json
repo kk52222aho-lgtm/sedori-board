@@ -119,7 +119,9 @@
   "end_time",
   "title",
   "url",
-  "scanned_at"
+  "scanned_at",
+  "競り",
+  "段"
  ],
  "master": [
   "family",
@@ -181,7 +183,13 @@
   "差額",
   "変化率",
   "商品",
-  "向き"
+  "向き",
+  "family",
+  "等級",
+  "判定",
+  "ニッチ",
+  "商品_m",
+  "含み"
  ],
  "signals": [
   "auction_id",
